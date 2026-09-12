@@ -1,0 +1,9 @@
+{
+  "zenith": {
+    "command": "node",
+    "args": [
+      "${PLUGIN_ROOT}/runtime/bridge/cli.mjs",
+      "stdio"
+    ]
+  }
+}

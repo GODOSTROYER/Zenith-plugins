@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "zenith": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/runtime/bridge/cli.mjs",
+        "stdio"
+      ]
+    }
+  }
+}

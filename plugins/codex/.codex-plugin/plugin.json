@@ -1,0 +1,10 @@
+{
+  "name": "zenith",
+  "version": "0.1.0-dev.1",
+  "description": "Read-only Zenith inspection and non-executable deployment previews. Development build.",
+  "author": {
+    "name": "GODOSTROYER"
+  },
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}
