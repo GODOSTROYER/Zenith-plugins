@@ -39,11 +39,18 @@ try {
     else { [IO.File]::SetAccessControl($target, $acl) }
   }
   function VerifyAcl($target) {
-    $item = Get-Item -LiteralPath $target -Force
-    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'links refused' }
-    $acl = Get-Acl -LiteralPath $target
+    $script:stage = 'acl_attributes'
+    $attributes = [IO.File]::GetAttributes($target)
+    if (($attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'links refused' }
+    $script:stage = 'acl_read'
+    $sections = [Security.AccessControl.AccessControlSections]::Access -bor [Security.AccessControl.AccessControlSections]::Owner
+    if (($attributes -band [IO.FileAttributes]::Directory) -ne 0) { $acl = [IO.Directory]::GetAccessControl($target, $sections) }
+    else { $acl = [IO.File]::GetAccessControl($target, $sections) }
+    $script:stage = 'acl_inheritance'
     if (!$acl.AreAccessRulesProtected) { throw 'inherited ACL refused' }
+    $script:stage = 'acl_owner'
     if ($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { throw 'foreign owner' }
+    $script:stage = 'acl_rules'
     foreach ($rule in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])) {
       if ($rule.AccessControlType -eq 'Allow' -and $rule.IdentityReference.Value -notin @($sid.Value,$system.Value)) { throw 'non-private ACL' }
     }
@@ -85,7 +92,7 @@ try {
   } else { throw 'unknown operation' }
 } catch { [Console]::Error.Write('zenith-vault:' + $stage); exit 1 }
 `;
-const stages = new Set(['start','load_crypto','read_input','parse_input','validate_path','identity','validate_token','create_directory','verify_directory','create_only','encrypt','write_file','protect_file','verify_file','read_file','decrypt']);
+const stages = new Set(['start','load_crypto','read_input','parse_input','validate_path','identity','validate_token','create_directory','verify_directory','create_only','encrypt','write_file','protect_file','verify_file','read_file','decrypt','acl_attributes','acl_read','acl_inheritance','acl_owner','acl_rules']);
 /** Only a constant stage identifier may cross the native error boundary. */
 export function vaultFailureStage(value:string):string {
   const match = /^zenith-vault:([a-z_]+)$/.exec(value.trim());
