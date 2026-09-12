@@ -9,8 +9,14 @@ $stage = 'start'
 try {
   $stage = 'load_crypto'
   Add-Type -AssemblyName System.Security
+  $stage = 'read_input'
+  # With -EncodedCommand, PowerShell owns stdin and presents it as pipeline input.
+  # The caller sends ASCII-escaped JSON; user paths never become command text.
+  $json = $input | Out-String
+  if ($json.Length -gt 131072 -or $json.Length -lt 2) { throw 'input size' }
   $stage = 'parse_input'
-  $r = [Console]::In.ReadToEnd() | ConvertFrom-Json
+  $r = ConvertFrom-Json -InputObject $json
+  $stage = 'validate_path'
   $p = [IO.Path]::GetFullPath([string]$r.path)
   if ($p -notmatch '^[A-Za-z]:\\' -or $p -ne [string]$r.path) { throw 'absolute local path required' }
   $stage = 'identity'
@@ -76,11 +82,15 @@ try {
   } else { throw 'unknown operation' }
 } catch { [Console]::Error.Write('zenith-vault:' + $stage); exit 1 }
 `;
-const stages = new Set(['start','load_crypto','parse_input','identity','validate_token','create_directory','verify_directory','create_only','encrypt','write_file','protect_file','verify_file','read_file','decrypt']);
+const stages = new Set(['start','load_crypto','read_input','parse_input','validate_path','identity','validate_token','create_directory','verify_directory','create_only','encrypt','write_file','protect_file','verify_file','read_file','decrypt']);
 /** Only a constant stage identifier may cross the native error boundary. */
 export function vaultFailureStage(value:string):string {
   const match = /^zenith-vault:([a-z_]+)$/.exec(value.trim());
   return match && stages.has(match[1]!) ? match[1]! : 'unavailable';
+}
+export function vaultInput(verb:'store'|'read',file:string,token?:string):string {
+  return JSON.stringify({verb,path:file,...(token===undefined?{}:{token})})
+    .replace(/[\u007f-\uffff]/g, char => `\\u${char.charCodeAt(0).toString(16).padStart(4,'0')}`) + '\n';
 }
 async function invoke(verb:'store'|'read',file:string,token?:string):Promise<string>{
   if(process.platform!=='win32')throw new ClientError('vault_platform','DPAPI credentials require Windows; use an owned private token file on POSIX.');
@@ -89,14 +99,15 @@ async function invoke(verb:'store'|'read',file:string,token?:string):Promise<str
   if(!root||!/^[A-Za-z]:\\/.test(root))throw new ClientError('vault_unavailable','A trusted Windows SystemRoot is required.');
   const executable=path.win32.join(root,'System32','WindowsPowerShell','v1.0','powershell.exe');
   return new Promise((resolve,reject)=>{
-    const child=spawn(executable,['-NoLogo','-NoProfile','-NonInteractive','-OutputFormat','Text','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{stdio:['pipe','pipe','pipe'],windowsHide:true,shell:false});
+    const child=spawn(executable,['-NoLogo','-NoProfile','-NonInteractive','-InputFormat','Text','-OutputFormat','Text','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{stdio:['pipe','pipe','pipe'],windowsHide:true,shell:false});
     let output='',diagnostic='',failed=false;const fail=()=>{failed=true;child.kill();};
     const timer=setTimeout(fail,15000);
     child.stdout.on('data',(b:Buffer)=>{output+=b.toString('utf8');if(output.length>32768)fail();});
     child.stderr.on('data',(b:Buffer)=>{diagnostic+=b.toString('utf8');if(diagnostic.length>8192)fail();});child.stdin.on('error',()=>{});
     child.once('error',()=>{clearTimeout(timer);reject(new ClientError('vault_unavailable','Windows credential protection could not start.'));});
     child.once('close',code=>{clearTimeout(timer);if(code!==0||failed)reject(new ClientError('vault_refused',`DPAPI credential access refused at ${vaultFailureStage(diagnostic)}. Verify owned private ACLs, a local regular file, and the current Windows user. Existing vaults are never overwritten.`));else resolve(output);});
-    child.stdin.end(JSON.stringify({verb,path:file,...(token===undefined?{}:{token})}));
+    // ASCII escaping avoids Windows code-page corruption without passing secrets as arguments.
+    child.stdin.end(vaultInput(verb,file,token));
   });
 }
 export async function storeVault(file:string,token:string):Promise<void>{

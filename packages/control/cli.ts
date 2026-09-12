@@ -3,6 +3,7 @@ import { isAbsolute } from 'node:path';
 import { controlClient, profileCommand } from './profiles.js';
 import { packageSource } from './source.js';
 import { storeVault } from './vault.js';
+import { remoteConfiguration } from './remote.js';
 import { serveControl } from './server.js';
 import { ClientError, isObject } from '../client/dist/index.js';
 export async function main(args:string[]=process.argv.slice(2)):Promise<void>{
@@ -21,13 +22,12 @@ export async function main(args:string[]=process.argv.slice(2)):Promise<void>{
     if(fields['--output']){if(!isAbsolute(fields['--output']))throw new ClientError('configuration_path','Choose an absolute archive output path.');const file=await open(fields['--output'],'wx',0o600);try{await file.writeFile(archive.bytes);await file.sync();}finally{await file.close();}}
     if(fields['--upload']){if(!confirm)throw new ClientError('upload_confirmation','Review source inventory first, then explicitly pass --confirm-upload. No upload was performed.');const uploaded=await(await controlClient()).upload(fields['--upload'],archive.bytes);console.log(JSON.stringify({...summary,uploaded},null,2));}else console.log(JSON.stringify(summary,null,2));return;
   }
+  if(command==='remote-config'){
+    if(args.length)throw new ClientError('usage','remote-config reads explicit connection settings; it accepts no token or extra arguments.');
+    console.log(JSON.stringify(await remoteConfiguration(),null,2));return;
+  }
   const client=await controlClient();
   if(command==='stdio'){await serveControl(client);return;}
-  if(command==='remote-config'){
-    if(!client.origin.startsWith('https://'))throw new ClientError('remote_requires_https','Remote OAuth configuration requires HTTPS.');
-    const url=new URL('/api/agent/v2/mcp',client.origin);url.searchParams.set('workspace',client.scope.workspaceId);if(client.scope.projectId)url.searchParams.set('project',client.scope.projectId);if(client.scope.environmentId)url.searchParams.set('environment',client.scope.environmentId);
-    console.log(JSON.stringify({claude:{mcpServers:{zenith:{type:'http',url:url.href}}},codexToml:`[mcp_servers.zenith]\nurl = ${JSON.stringify(url.href)}\n`,authentication:'Use the client OAuth flow. Configure a matching resource grant in Zenith; no token is embedded.'},null,2));return;
-  }
   if(command==='doctor'){
     const tools=await client.catalog(),context=await client.call('zenith_get_context',{}),data=context.structuredContent?.data;
     if(context.isError||!isObject(data)||!isObject(data.selected)||['workspaceId','projectId','environmentId'].some(k=>data.selected&&isObject(data.selected)&&data.selected[k]!==client.scope[k as keyof typeof client.scope]))throw new ClientError('scope_mismatch','The backend did not verify the exact selected scope.');
