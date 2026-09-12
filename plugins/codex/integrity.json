@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "algorithm": "sha256",
+  "files": {
+    ".codex-plugin/plugin.json": "38f99495cc50a3d2d114901100e8e8b6d288de9698907ba56b4e8c832369141b",
+    ".mcp.json": "bec9b64ab034236b20e6734b50899ca56bb192ef302c538537dbd63cf65b3ee9",
+    "README.md": "dd114faf8cf3e0117d5ccbde869da616973d5030748fea507c8c030444441e14",
+    "package.json": "a813fe20e1dd28287bc974caef9c269424e607d4233eec1460dc973022e683bf",
+    "runtime/bridge/cli.mjs": "6c9824dda389aa18fa6d872782d82cddba9dac86e417eb179aec13e8404a8a1a",
+    "runtime/bridge/config.mjs": "3055be0813056ed312f20286b07de1cb475ad84036723705a296a72ec29c2868",
+    "runtime/bridge/doctor.mjs": "0613d1501bdf99e34e389aaf499af7ab2dead74a15f78184b0617f3efe055d48",
+    "runtime/bridge/entrypoint.mjs": "34de30f6e946655b5a7faf8f7bb5a703ed8f24c3224fa9ceca6c88dbf27d0d76",
+    "runtime/client/dist/index.d.ts": "cc22d3d21eeda178710f9f3509d45bc57019f0aad050be4d7e8ad66edcb53d35",
+    "runtime/client/dist/index.js": "81f797d4c0639f40ecce502771dfb807156b9765231a267194a9bd97454b2df4",
+    "skills/connect/SKILL.md": "0b2753ef6b34db698e30bc57cd03723d35ddf47ed4dd1f0de708cce5692710ee",
+    "skills/export/SKILL.md": "b5b2db434312f1d58f45d4a0474ad1b249266559d02a66c08f2f86d0752b1f21",
+    "skills/inspect/SKILL.md": "2e09a50655088c7d6fe68ca0bcd62cd9dbe9bccaf1549ffd09a55d0f1d13dc5c",
+    "skills/observe/SKILL.md": "053b49730be85de4450a8ee2ee3bd167c305ab17e3a1f1cc3595b63b794444c9",
+    "skills/plan/SKILL.md": "dae88782065c2ebe066e2f2ccf2d45765c7f7dc7d0d178153495f0cf13f0e21e"
+  }
+}

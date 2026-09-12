@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, readFile, chmod, lstat, readdir, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { profile, readBoundedFile, configuredClient, setup, writeProfile } from '../packages/bridge/config.mjs';
+import { profile, readBoundedFile, configuredClient, setup, writeProfile, sameFileIdentity } from '../packages/bridge/config.mjs';
 const token = `za_${'C'.repeat(43)}`;
 const posix = { skip: process.platform === 'win32' ? 'Private-file ACL checks intentionally refuse Windows.' : false };
 async function fixture(t) {
@@ -71,4 +71,14 @@ test('explicit ID-only association is supported without scope environment', asyn
 test('private profile refuses permissive permissions', posix, async t => {
   const f = await fixture(t); await writeFile(f.output, JSON.stringify(f.value), { mode: 0o644 });
   await assert.rejects(configuredClient({ ZENITH_CONFIG_FILE: f.output }), e => e.code === 'credential_permissions');
+});
+
+test('file identity retains full inode precision and normalizes only Windows serial width', () => {
+  const pathStat = { dev: 0x123456789abcdef0n, ino: 9007199254740993n };
+  const handleStat = { dev: 0x9abcdef0n, ino: 9007199254740993n };
+  assert.equal(sameFileIdentity(pathStat, handleStat, 'win32'), true);
+  assert.equal(sameFileIdentity(pathStat, handleStat, 'linux'), false);
+  assert.equal(sameFileIdentity(pathStat, { ...handleStat, dev: 0x9abcdef1n }, 'win32'), false);
+  assert.equal(sameFileIdentity(pathStat, { ...handleStat, ino: 9007199254740992n }, 'win32'), false);
+  assert.equal(sameFileIdentity(pathStat, { ...pathStat }, 'linux'), true);
 });

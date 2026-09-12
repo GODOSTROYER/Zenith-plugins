@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** Thin stdio boundary: no Zenith storage, shell evaluation, or model calls. */
-import { fileURLToPath } from 'node:url';
+import { isMain } from './entrypoint.mjs';
 import { ClientError, validateRequest, errorResponse, MAX_REQUEST_BYTES } from '../client/dist/index.js';
 import { configuredClient, setup } from './config.mjs';
 import { inspectConnection } from './doctor.mjs';
@@ -102,7 +102,7 @@ export async function main(args = process.argv.slice(2)) {
   try { await serve(client, { signal: controller.signal }); }
   finally { process.off('SIGINT', stop); process.off('SIGTERM', stop); }
 }
-if (process.argv[1] === fileURLToPath(import.meta.url)) main().catch(error => {
+if (isMain(import.meta.url)) main().catch(error => {
   console.error(JSON.stringify({ level: 'error', code: error instanceof ClientError ? error.code : 'startup_failed',
     message: error instanceof ClientError ? error.message : 'Could not load configuration or credential. Check paths, ownership, and JSON; secret values are not logged.' }));
   process.exitCode = 1;

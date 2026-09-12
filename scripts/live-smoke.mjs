@@ -5,6 +5,7 @@ import { cp, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isMain } from '../packages/bridge/entrypoint.mjs';
 import { configuredClient } from '../packages/bridge/config.mjs';
 import { inspectConnection } from '../packages/bridge/doctor.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url)), run = promisify(execFile);
@@ -26,6 +27,6 @@ export async function smoke(env = process.env) {
       evidence: 'Authenticated endpoint checks through standalone and copied Node packages. Not Codex/Claude binary, model behavior, provider or deployment verification.' };
   } finally { await rm(dir, { recursive: true, force: true }); }
 }
-if (process.argv[1] === fileURLToPath(import.meta.url)) smoke().then(report => console.log(JSON.stringify(report, null, 2))).catch(() => {
+if (isMain(import.meta.url)) smoke().then(report => console.log(JSON.stringify(report, null, 2))).catch(() => {
   console.error('Live smoke did not pass. Explicit opt-in, a running reviewed Zenith, and a valid scoped credential are required. No raw error body or credential is printed.'); process.exitCode = 1;
 });

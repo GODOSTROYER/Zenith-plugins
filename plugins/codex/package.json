@@ -1,9 +1,17 @@
 {
   "name": "zenith",
-  "version": "0.1.0-dev.1",
+  "version": "0.1.0-dev.2",
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=22.16.0"
-  }
+  },
+  "files": [
+    ".codex-plugin",
+    ".mcp.json",
+    "runtime",
+    "skills",
+    "README.md",
+    "integrity.json"
+  ]
 }

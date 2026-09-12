@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, readFile, writeFile, rename, rm } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isMain } from '../packages/bridge/entrypoint.mjs';
 import { createHash } from 'node:crypto';
 import { inventory } from './package-files.mjs';
 const run = promisify(execFile), root = fileURLToPath(new URL('../', import.meta.url));
@@ -37,6 +38,6 @@ export async function prepareRelease(destination = path.join(root, 'artifacts'))
     return report;
   } finally { await rm(staging, { recursive: true, force: true }); }
 }
-if (process.argv[1] === fileURLToPath(import.meta.url)) prepareRelease().then(result => console.log(JSON.stringify(result, null, 2))).catch(() => {
+if (isMain(import.meta.url)) prepareRelease().then(result => console.log(JSON.stringify(result, null, 2))).catch(() => {
   console.error('Release preparation failed. Rebuild and verify locally; nothing was published.'); process.exitCode = 1;
 });
