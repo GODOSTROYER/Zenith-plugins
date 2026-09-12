@@ -1,5 +1,5 @@
 # One-time hash-verified source transfer. Removed by its implementation commit.
-# Only the named feature branch is writable; no merge, publication, or deployment.
+# Workflow changes are committed through the authorized GitHub connector, not this job.
 name: Assemble reviewed plugin source
 on:
   push:
@@ -39,9 +39,9 @@ jobs:
               assert len(fields)==3 and fields[0].isdigit() and fields[1].isdigit()
               p = fields[2]
               assert '..' not in pathlib.PurePosixPath(p).parts and (p in exact or p.startswith(prefixes)), p
-          subprocess.run(['git','apply','--check'], input=patch, check=True)
-          subprocess.run(['git','apply'], input=patch, check=True)
-          # Clean-checkout correction: typecheck must resolve canonical TS, not generated files.
+          # Workflow files have already been committed with the connector's authorization.
+          subprocess.run(['git','apply','--exclude=.github/workflows/*','--check'], input=patch, check=True)
+          subprocess.run(['git','apply','--exclude=.github/workflows/*'], input=patch, check=True)
           for name in ('profiles.ts','server.ts'):
               p=pathlib.Path('packages/control')/name
               source=p.read_text()
@@ -72,7 +72,7 @@ jobs:
           current=$(git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $header" ls-remote origin "refs/heads/$branch" | cut -f1)
           test "$current" = "$GITHUB_SHA"
           git rm -r .agent-transfer .github/workflows/assemble-plugins.yml
-          git add packages plugins shared scripts tests docs contracts .agents .claude-plugin .github/workflows/verify.yml .github/workflows/attest.yml .gitignore package.json package-lock.json tsconfig.control.json README.md PROGRESS.md CHANGELOG.md
+          git add packages plugins shared scripts tests docs contracts .agents .claude-plugin .gitignore package.json package-lock.json tsconfig.control.json README.md PROGRESS.md CHANGELOG.md
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'feat: SDK connector, reviewed operations, publishing, profiles and workflow skills'
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $header" push origin "HEAD:refs/heads/$branch"
       - name: Preserve tracked implementation and diagnostics
