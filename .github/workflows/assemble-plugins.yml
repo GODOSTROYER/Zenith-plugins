@@ -41,6 +41,12 @@ jobs:
               assert '..' not in pathlib.PurePosixPath(p).parts and (p in exact or p.startswith(prefixes)), p
           subprocess.run(['git','apply','--check'], input=patch, check=True)
           subprocess.run(['git','apply'], input=patch, check=True)
+          # Clean-checkout correction: typecheck must resolve canonical TS, not generated files.
+          for name in ('profiles.ts','server.ts'):
+              p=pathlib.Path('packages/control')/name
+              source=p.read_text()
+              assert source.count('../client/dist/control.js')==1
+              p.write_text(source.replace('../client/dist/control.js','../client/control.js'))
           PY
       - name: Resolve and install exact declared dependencies
         run: |
@@ -62,12 +68,12 @@ jobs:
           set -eu
           branch=feat/reviewed-operations-and-publishing
           test "$GITHUB_REF" = "refs/heads/$branch"
-          current=$(git ls-remote origin "refs/heads/$branch" | cut -f1)
+          header=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          current=$(git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $header" ls-remote origin "refs/heads/$branch" | cut -f1)
           test "$current" = "$GITHUB_SHA"
           git rm -r .agent-transfer .github/workflows/assemble-plugins.yml
           git add packages plugins shared scripts tests docs contracts .agents .claude-plugin .github/workflows/verify.yml .github/workflows/attest.yml .gitignore package.json package-lock.json tsconfig.control.json README.md PROGRESS.md CHANGELOG.md
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'feat: SDK connector, reviewed operations, publishing, profiles and workflow skills'
-          header=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $header" push origin "HEAD:refs/heads/$branch"
       - name: Preserve tracked implementation and diagnostics
         if: always()
