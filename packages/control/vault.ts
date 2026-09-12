@@ -4,6 +4,7 @@ import path from 'node:path';
 import { ClientError } from '../client/dist/index.js';
 const script = String.raw`
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 $stage = 'start'
 try {
   $stage = 'load_crypto'
@@ -25,12 +26,14 @@ try {
       else { $rule = [Security.AccessControl.FileSystemAccessRule]::new($who, 'FullControl', 'Allow') }
       $acl.AddAccessRule($rule)
     }
-    Set-Acl -LiteralPath $target -AclObject $acl
+    if ($directory) { [IO.Directory]::SetAccessControl($target, $acl) }
+    else { [IO.File]::SetAccessControl($target, $acl) }
   }
   function VerifyAcl($target) {
     $item = Get-Item -LiteralPath $target -Force
     if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'links refused' }
     $acl = Get-Acl -LiteralPath $target
+    if (!$acl.AreAccessRulesProtected) { throw 'inherited ACL refused' }
     if ($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $sid.Value) { throw 'foreign owner' }
     foreach ($rule in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])) {
       if ($rule.AccessControlType -eq 'Allow' -and $rule.IdentityReference.Value -notin @($sid.Value,$system.Value)) { throw 'non-private ACL' }
@@ -76,7 +79,7 @@ try {
 const stages = new Set(['start','load_crypto','parse_input','identity','validate_token','create_directory','verify_directory','create_only','encrypt','write_file','protect_file','verify_file','read_file','decrypt']);
 /** Only a constant stage identifier may cross the native error boundary. */
 export function vaultFailureStage(value:string):string {
-  const match = /^zenith-vault:([a-z_]+)$/.exec(value);
+  const match = /^zenith-vault:([a-z_]+)$/.exec(value.trim());
   return match && stages.has(match[1]!) ? match[1]! : 'unavailable';
 }
 async function invoke(verb:'store'|'read',file:string,token?:string):Promise<string>{
@@ -86,11 +89,11 @@ async function invoke(verb:'store'|'read',file:string,token?:string):Promise<str
   if(!root||!/^[A-Za-z]:\\/.test(root))throw new ClientError('vault_unavailable','A trusted Windows SystemRoot is required.');
   const executable=path.win32.join(root,'System32','WindowsPowerShell','v1.0','powershell.exe');
   return new Promise((resolve,reject)=>{
-    const child=spawn(executable,['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{stdio:['pipe','pipe','pipe'],windowsHide:true,shell:false});
+    const child=spawn(executable,['-NoLogo','-NoProfile','-NonInteractive','-OutputFormat','Text','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{stdio:['pipe','pipe','pipe'],windowsHide:true,shell:false});
     let output='',diagnostic='',failed=false;const fail=()=>{failed=true;child.kill();};
     const timer=setTimeout(fail,15000);
     child.stdout.on('data',(b:Buffer)=>{output+=b.toString('utf8');if(output.length>32768)fail();});
-    child.stderr.on('data',(b:Buffer)=>{diagnostic+=b.toString('utf8');if(diagnostic.length>256)fail();});child.stdin.on('error',()=>{});
+    child.stderr.on('data',(b:Buffer)=>{diagnostic+=b.toString('utf8');if(diagnostic.length>8192)fail();});child.stdin.on('error',()=>{});
     child.once('error',()=>{clearTimeout(timer);reject(new ClientError('vault_unavailable','Windows credential protection could not start.'));});
     child.once('close',code=>{clearTimeout(timer);if(code!==0||failed)reject(new ClientError('vault_refused',`DPAPI credential access refused at ${vaultFailureStage(diagnostic)}. Verify owned private ACLs, a local regular file, and the current Windows user. Existing vaults are never overwritten.`));else resolve(output);});
     child.stdin.end(JSON.stringify({verb,path:file,...(token===undefined?{}:{token})}));
