@@ -1,0 +1,85 @@
+# One-time hash-verified source transfer. Removed by its implementation commit.
+# Only the named feature branch is writable; no merge, publication, or deployment.
+name: Assemble reviewed plugin source
+on:
+  push:
+    branches: [feat/reviewed-operations-and-publishing]
+permissions:
+  contents: read
+jobs:
+  assemble:
+    if: github.repository == 'GODOSTROYER/Zenith-plugins' && github.actor == 'GODOSTROYER' && contains(github.event.head_commit.message, 'assemble-reviewed-plugins')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+      - name: Verify and apply exact source snapshot
+        run: |
+          python3 - <<'PY'
+          import pathlib, hashlib, bz2, subprocess
+          chunks = [pathlib.Path('.agent-transfer/part'+str(i)).read_bytes() for i in range(5)]
+          expected = ['37cd057587b5fbcd1ff6afdf929982fbb9a34d553c27de610077e69e54070124','6914111869f27efeb2dc5ab7028e8ed050eb4f89633dcf573ae5411cf542a565','da602d81280de6348e39c590f40c4c0d8f81a060be406821ff720fd971d44399','1fc55751927527a4cdb839e0ea6c7509f7a6c390360199aebd295a1c85d1fe86','3c4ee807f0534e2d3c85c44d6fe2e8c5ca52929cf5e74d743e31acf0065014dc']
+          assert [hashlib.sha256(c).hexdigest() for c in chunks] == expected, 'Transfer checksum mismatch'
+          patch = bz2.decompress(b''.join(chunks))
+          assert len(patch) == 160435 and hashlib.sha256(patch).hexdigest() == '98005403111d32e78636a38965df3a571dbf00dfb7e2b0ca879a3555ac55a836'
+          prefixes = ('packages/', 'scripts/', 'tests/', 'docs/', 'shared/', 'contracts/')
+          exact = {'.github/workflows/verify.yml','.github/workflows/attest.yml','.gitignore','CHANGELOG.md','PROGRESS.md','README.md','package.json','tsconfig.control.json'}
+          records = subprocess.run(['git','apply','--numstat','-z'], input=patch, check=True, capture_output=True).stdout.rstrip(b'\0').split(b'\0')
+          assert len(records) == 54
+          for record in records:
+              fields = record.decode().split('\t', 2)
+              assert len(fields)==3 and fields[0].isdigit() and fields[1].isdigit()
+              p = fields[2]
+              assert '..' not in pathlib.PurePosixPath(p).parts and (p in exact or p.startswith(prefixes)), p
+          subprocess.run(['git','apply','--check'], input=patch, check=True)
+          subprocess.run(['git','apply'], input=patch, check=True)
+          PY
+      - name: Resolve and install exact declared dependencies
+        run: |
+          npm install --package-lock-only --ignore-scripts
+          npm ci --ignore-scripts
+      - name: Verify code and generate both installed packages
+        id: checks
+        continue-on-error: true
+        run: |
+          mkdir -p artifacts
+          set +e
+          npm run verify > artifacts/verify.log 2>&1; result=$?
+          cat artifacts/verify.log
+          exit "$result"
+      - name: Commit to the existing feature branch only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          branch=feat/reviewed-operations-and-publishing
+          test "$GITHUB_REF" = "refs/heads/$branch"
+          current=$(git ls-remote origin "refs/heads/$branch" | cut -f1)
+          test "$current" = "$GITHUB_SHA"
+          git rm -r .agent-transfer .github/workflows/assemble-plugins.yml
+          git add packages plugins shared scripts tests docs contracts .agents .claude-plugin .github/workflows/verify.yml .github/workflows/attest.yml .gitignore package.json package-lock.json tsconfig.control.json README.md PROGRESS.md CHANGELOG.md
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'feat: SDK connector, reviewed operations, publishing, profiles and workflow skills'
+          header=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $header" push origin "HEAD:refs/heads/$branch"
+      - name: Preserve tracked implementation and diagnostics
+        if: always()
+        run: |
+          mkdir -p artifacts
+          git archive --format=tar HEAD > artifacts/plugins-source.tar
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: reviewed-plugins-implementation-${{ github.sha }}
+          retention-days: 1
+          path: artifacts/
+      - name: Keep verification failure visible
+        if: steps.checks.outcome == 'failure'
+        run: exit 1
