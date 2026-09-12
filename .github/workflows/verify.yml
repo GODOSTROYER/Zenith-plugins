@@ -1,0 +1,17 @@
+name: Verify development packages
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run verify
+      - name: Check reproducible package output
+        run: git diff --exit-code -- plugins packages/client/dist .agents .claude-plugin
