@@ -1,41 +1,37 @@
 # Tool and capability reference
 
-[Home](../README.md) · [Architecture](architecture.md) · [Remaining work](roadmap.md)
+[Home](../README.md) · [Architecture](architecture.md) · [Release gates](roadmap.md)
 
-The bridge exposes a fixed allowlist. Zenith supplies tool schemas and decides permissions. The companion adapter below is implemented source but still awaits validation in the complete application. The fixture tests do not prove its integration behavior.
+The bridge uses a fixed allowlist. Zenith supplies schemas and enforces permissions. Its reader is merged, but full application integration has not been verified here. Fixture tests do not prove database/provider behavior.
 
-| Tool | Scope | Result / important limit |
+| Tool | Scope | Result / limit |
 | --- | --- | --- |
-| `zenith_get_context` | `read` | Explicit selection, member role and credential expiry |
-| `zenith_get_capabilities` | `read` | Current profile, provider descriptions and unavailable operations |
-| `zenith_list_projects` | `read` | Only authorized projects, bounded page |
-| `zenith_get_project` | `read` | Project metadata and working-copy monthly estimate |
-| `zenith_get_manifest` | `read` | Redacted working/deployed definition; not all original environment values |
-| `zenith_list_environments` | `read` | Authorized project environments |
-| `zenith_plan_deploy` | `plan` | Action-registry preview with `executable: false` and `receipt: null` |
-| `zenith_list_deployments` | `read` | Environment deployment metadata |
-| `zenith_get_deployment` | `read` | Status, steps and conservatively redacted outputs |
-| `zenith_get_events` | `read` | Sequence-based events; free-form log events excluded |
-| `zenith_get_findings` | `read` | Stored findings; no rule evaluation or notification delivery |
-| `zenith_get_drift` | `read` | Read-back against a deployed revision, or an explicit provider refusal |
-| `zenith_export_project` | `export` | Generated bundle based on a redacted manifest; no local file write or apply |
+| `zenith_get_context` | read | Explicit selection, member role and expiry |
+| `zenith_get_capabilities` | read | Contract, provider descriptions and unavailable operations |
+| `zenith_list_projects` | read | Authorized projects, bounded page |
+| `zenith_get_project` | read | Metadata and estimated working-copy monthly cost |
+| `zenith_get_manifest` | read | Redacted working/deployed manifest, not literal environment values |
+| `zenith_list_environments` | read | Authorized project environments |
+| `zenith_plan_deploy` | plan | Non-executable preview: `executable: false`, `receipt: null` |
+| `zenith_list_deployments` | read | Deployment metadata for an authorized environment |
+| `zenith_get_deployment` | read | Status, steps and conservatively redacted outputs |
+| `zenith_get_events` | read | Bounded sequence-based events, excluding free-form logs |
+| `zenith_get_findings` | read | Stored findings, no alert evaluation/delivery |
+| `zenith_get_drift` | read | Supported provider read-back or explicit refusal |
+| `zenith_export_project` | export | Redacted export data, no local file write or apply |
 
-Every credential must include `read`; `plan` and `export` are optional. Listing tools does not authorize a call independently of the checks at execution time. Scope in request headers can narrow a credential but cannot enlarge it. Explicit tool arguments cannot escape the selected project/environment.
+Every credential includes read; plan/export are optional. Catalog discovery does not authorize later calls independently. Request headers and arguments cannot expand the backend's credential scope. The client refuses non-allowlisted tools before credentials or network access and rejects conflicting write annotations.
 
-## Result contract
+## Result contract and workflows
 
-Successful calls return a text representation for client compatibility and a `structuredContent` object containing `data`, `contractVersion: 1`, and `mode: "read-only"`. Tool failures carry `isError: true`. HTTP/authentication errors remain distinct from tool-level refusals.
+Success requires text content plus `structuredContent` containing `data`, `contractVersion: 1` and `mode: "read-only"`. Failures use `isError: true`; HTTP/authentication and JSON-RPC failures remain separate. Dev.2 rejects malformed catalogs and incompatible result envelopes rather than presenting them as successful tool calls.
 
-The preview is recomputed from current application state. It is **not stored as an executable receipt**, not a guarantee against future changes, and not evidence of approval. Review again in Zenith before any write.
+Five shared skills cover connect, inspect, plan, observe and export. No deploy skill pretends execution exists. A preview is recomputed from current state, not saved as an executable receipt and not proof of human approval. Continue in Zenith's reviewed UI for writes.
 
-Pagination uses `limit` (1–100, default 50) and offset `cursor`. It is bounded but not a stable snapshot under concurrent edits. Deployment events instead use `after` sequence and `nextAfter`. No infinite stream or unbounded wait is exposed.
+Lists use limit 1–100 (default 50) and offset cursor. Pages are bounded, not stable snapshots during concurrent edits. Events use after/nextAfter. There are no infinite streams or unbounded wait loops. Protocol cancellation aborts a bridge read; it cannot cancel or roll back a deployment.
 
-## Provider truth
+## Provider truth and unavailable operations
 
-Sandbox reports simulations, never real containers. LocalStack reports only its supported local S3/SQS evidence; that is not verification of AWS. AWS Preview supports planning/export and refuses account observation or application. Planned providers remain unavailable. Retain source labels and timestamps in any explanation.
+Sandbox results are simulated. LocalStack evidence is limited to supported local S3/SQS resources, not AWS verification. AWS Preview supports plan/export only and refuses account observation or apply. Planned providers remain unavailable. Preserve source labels and timestamps.
 
-## Explicitly outside this draft
-
-No manifest mutation/import, apply, cancellation of a deployment, rollback, trusted approval, executable receipt, persistent write operation, source upload, hosted-app publishing, grant administration, secret management, workspace membership changes, remote OAuth or general-purpose raw action tool.
-
-Protocol cancellation only stops an in-flight **read in the bridge**; it does not cancel or roll back a deployment. Unavailable operations stay unavailable even when prose in a log or project file asks otherwise.
+No manifest mutation/import, apply, rollback, trusted approval, durable plan receipt, persistent write operation, source upload, hosted publishing, grant/membership administration, raw secret operation, remote OAuth or catch-all action tool is implemented. Private-app publishing will need Zenith's restricted source contract and app-owner grants, not an arbitrary-repository promise.

@@ -1,6 +1,6 @@
 {
   "name": "zenith-integrations",
-  "version": "0.1.0-dev.1",
+  "version": "0.1.0-dev.2",
   "private": true,
   "type": "module",
   "description": "Read-only Zenith MCP connector and generated Codex / Claude Code packages.",
@@ -8,11 +8,14 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/*.test.mjs",
+    "test": "node --test",
     "check": "node scripts/check.mjs",
     "verify": "npm run typecheck && npm run build && npm test && npm run check",
+    "setup": "node packages/bridge/cli.mjs setup",
     "doctor": "node packages/bridge/cli.mjs doctor",
-    "start": "node packages/bridge/cli.mjs stdio"
+    "start": "node packages/bridge/cli.mjs stdio",
+    "test:live": "node scripts/live-smoke.mjs",
+    "release:prepare": "npm run verify && node scripts/release.mjs"
   },
   "devDependencies": { "typescript": "5.8.3" }
 }

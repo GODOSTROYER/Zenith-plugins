@@ -8,7 +8,7 @@
       "name": "zenith",
       "source": "./plugins/claude-code",
       "description": "Read-only Zenith inspection; development build, not a deployment integration.",
-      "version": "0.1.0-dev.1"
+      "version": "0.1.0-dev.2"
     }
   ]
 }

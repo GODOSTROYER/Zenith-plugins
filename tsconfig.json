@@ -1,11 +1,25 @@
 {
   "compilerOptions": {
-    "target": "ES2022", "module": "NodeNext", "moduleResolution": "NodeNext",
-    "lib": ["ES2022", "DOM"], "strict": true, "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true, "noFallthroughCasesInSwitch": true,
-    "noUnusedLocals": true, "noUnusedParameters": true, "declaration": true,
-    "rootDir": "packages/client", "outDir": "packages/client/dist",
-    "skipLibCheck": true
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "declaration": true,
+    "rootDir": "packages/client",
+    "outDir": "packages/client/dist",
+    "skipLibCheck": true,
+    "newLine": "lf"
   },
-  "include": ["packages/client/*.ts"]
+  "include": [
+    "packages/client/*.ts"
+  ]
 }

@@ -2,38 +2,38 @@
 
 [Home](../README.md) · [Security](security.md) · [Verification](verification.md)
 
-## Ownership is the first boundary
+## Ownership
 
-`Zenith-plugins` owns a typed transport client, a local stdio process, generated packages and shared skills. `zenith` owns the authenticated endpoint and the application it reads. The bridge neither imports application internals nor opens application storage. This keeps client changes independent of the persistence implementation and prevents a second writer from appearing beside a local Zenith process.
+`Zenith-plugins` owns a typed transport client, local stdio process, setup/doctor, generated packages and shared skills. `zenith` owns the authenticated endpoint, application actions, permissions and storage. No plugin imports backend internals or opens a database. Connector processes are clients, not additional application writers; this does not make Zenith horizontally scalable.
 
-The companion branch adds `src/lib/agent-access/`, an exact `/api/agent/v1/mcp` route, an operator credential utility, and an exact-path middleware exception. The exception skips browser-cookie authentication for that endpoint only; the endpoint imposes its own fail-closed credential and resource checks. App-host rewrite still runs first.
+The read-only companion endpoint is merged in Zenith at `2d56ecc3abe77f560d9c58bee14370b0789f386a`. Its route is `/api/agent/v1/mcp`, with independent fail-closed credential and resource checks. Full application behavior has not been exercised in this increment.
 
-## Read request lifecycle
+## Request lifecycle
 
-A client initializes over stdio. The bridge validates the envelope, checks its method/tool allowlist, obtains the configured credential and sends one POST to the pinned Zenith origin. Redirects, ambient browser cookies, automatic retries and session-based MCP responses are not accepted.
+Trusted user configuration fixes the destination and selected IDs. An ID-only association cannot select an origin or credential. The client snapshots requests before asynchronous work, refreshes file credentials per request, and sends bounded POSTs without cookies, redirects or automatic retry. It validates both protocol envelopes and the versioned read-only result contract.
 
-The companion validates configuration, origin/Host, method/media type, credential and selected scope. It checks membership inside the application snapshot before dispatching a curated read. The file-backed path claims the application's data directory; the Postgres path uses a request snapshot. It deliberately does not start deployment or alert timers for a read.
+The stdio boundary progresses through new, initializing, initialized and ready states. Concurrent initialization is refused; readiness requires a successful initialized acknowledgement. Active reads have unique IDs and abort controllers. Cancellation suppresses a cancelled read's reply; shutdown aborts active reads. No protocol cancellation cancels a Zenith deployment.
 
-Successful results are conservatively redacted, size-bounded and returned as JSON. Logs, error bodies and instructions in returned records are data. The bridge never evaluates them as JavaScript or shell commands.
+A read has a deadline covering credential acquisition, HTTP headers and body consumption. File reads, frames, responses and catalog pagination are bounded. Optional diagnostics contain method, generated correlation ID, status, duration, response bytes and outcome, never arguments or bodies.
 
-## ADR 001 — one implementation, generated packages
+## ADR 001 — shared source, self-contained distribution
 
-Both packages contain the same bridge, compiled client and skills. `scripts/build.mjs` generates manifests and marketplace entries with client-specific wrapper/root syntax. Checking equality against source and launching from an isolated directory prevents hidden checkout-relative dependencies. Generated files are committed so plugin startup does not install dependencies.
+`scripts/build.mjs` regenerates both packages and marketplace definitions. Installed runtimes and all five skills are checked against canonical source recursively. Each package contains a deterministic SHA-256 inventory. `scripts/release.mjs` uses the installed npm CLI in offline, ignore-scripts mode, verifies packed file membership and prepares local review archives. Hashes detect accidental changes; they do not authenticate a publisher.
 
-## ADR 002 — a deliberately limited protocol profile
+## ADR 002 — explicit, limited protocol profile
 
-The current code is a small handwritten adapter for line-delimited stdio and stateless, JSON-response HTTP. It targets declared protocol revisions `2025-11-25`, `2025-06-18`, and `2024-11-05`; these constants are not a claim of independent interoperability certification.
+This increment retains the small handwritten adapter for line-delimited stdio and stateless JSON-response HTTP. Declared MCP revisions remain `2025-11-25`, `2025-06-18`, and `2024-11-05`; these are protocol constants, not native-client certification. Zenith success results require `structuredContent.contractVersion = 1` and `mode = "read-only"`.
 
-No SDK, OAuth server, session store, SSE reader, resource/prompt service or server-initiated requests are implemented. The bridge accepts initialize, initialized notification, ping, tools/list and allowlisted tools/call. This is a reviewable development increment, not the maintained-SDK/full remote integration required for release. Replace the limited protocol layer and validate actual clients before general distribution.
+No maintained MCP SDK, OAuth server, session store, SSE reader, server-initiated methods, resources or prompts are added. Unknown write tools are filtered and cannot be called. Conflicting read-tool annotations or incompatible contracts fail closed. Migration to a maintained SDK and remote transport remains an explicit release gate, not a capability silently claimed by this hardening work.
 
 ## ADR 003 — read-only until authoritative writes exist
 
-A prompt or skill cannot enforce approval. Adding executable tools requires durable actor-bound receipts, atomic state/policy rechecks, trusted approval, idempotency across restart and persistent operations in Zenith. Those are separate acceptance gates. The current preview is explicitly non-executable and writes are denied at both exposed boundaries.
+Neither a prompt nor a model-provided approval field grants permission. Executable tools require durable actor-bound receipts, atomic state/policy checks, trusted approvals and replay-safe operations **in Zenith**. Existing previews remain recomputed, non-executable and not approval evidence. There is no generic raw-action or shell tool.
 
-## ADR 004 — local operator credentials, not remote OAuth
+## ADR 004 — explicit private profiles
 
-Short-lived opaque credentials let a local operator exercise the draft without exporting browser cookies or provider keys. The authority file stores hashes, scoped IDs and expiry; live application membership remains necessary. The server is opt-in and loopback-development only. This choice must not be relabeled as MCP OAuth compliance or expanded to public HTTP through configuration alone.
+Setup creates a new versioned, private profile pointing to an existing private token file. It validates the destination, IDs and file permissions, refuses overwrites and never stores raw tokens in the profile. No default profile discovery or `.env` loading occurs. A profile and individual connection variables cannot be combined ambiguously. On Windows, private-file access fails closed until ACL validation exists; explicit environment credentials remain available.
 
-## Limits worth preserving
+## Boundaries
 
-Request frames are at most 64 KiB; responses at most 256 KiB; bridge concurrency is at most eight calls; request timeout defaults to 15 seconds; pagination is bounded. These are wire limits, not proof that every application query has bounded CPU or memory cost. The process-local 120-request/minute credential throttle is not distributed rate limiting. Nothing here proves horizontal scalability.
+Requests: 64 KiB. Responses: 256 KiB. Concurrent reads: eight. Default deadline: 15 seconds. Token files: 256 bytes. ID associations: 4 KiB. Private profiles: 8 KiB. Doctor catalog pagination: four pages maximum. These are transport/configuration limits, not proof of bounded backend query costs or distributed rate limiting.
