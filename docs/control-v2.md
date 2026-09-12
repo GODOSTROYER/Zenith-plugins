@@ -4,7 +4,7 @@
 
 ## Backend and credentials
 
-Use the companion Zenith control code, not merely the v1 reader. Enable `ZENITH_AGENT_CONTROL=1`; writes additionally require `ZENITH_AGENT_WRITES=1`. Set a trusted `ZENITH_AGENT_ORIGIN` and private `ZENITH_AGENT_CREDENTIAL_FILE`. Keep local origins loopback-only; remote origins require HTTPS and OAuth. The existing Zenith operator credential utility supports read, plan, export, write, publish and logs scopes, with explicit permitted project/environment/app IDs. The subject must be a real non-demo member.
+Use the companion Zenith control code from merged [backend PR #6](https://github.com/GODOSTROYER/zenith/pull/6), not merely the v1 reader. Enable `ZENITH_AGENT_CONTROL=1`; writes additionally require `ZENITH_AGENT_WRITES=1`. Set a trusted `ZENITH_AGENT_ORIGIN` and private `ZENITH_AGENT_CREDENTIAL_FILE`. Keep local origins loopback-only; remote origins require HTTPS and OAuth. The existing Zenith operator credential utility supports read, plan, export, write, publish and logs scopes, with explicit permitted project/environment/app IDs. The subject must be a real non-demo member.
 
 On the connector set `ZENITH_API_VERSION=2`, explicit `ZENITH_URL`, `ZENITH_WORKSPACE_ID`, optional `ZENITH_PROJECT_ID`/`ZENITH_ENVIRONMENT_ID` and exactly one credential source: `ZENITH_TOKEN_FILE`, `ZENITH_TOKEN`, or Windows `ZENITH_TOKEN_VAULT`. Use `ZENITH_CREDENTIAL_KIND=oauth` for JWT access tokens. Local loopback HTTP requires `ZENITH_ALLOW_LOOPBACK_HTTP=1`. Client mutations require `ZENITH_ALLOW_WRITES=1`; the default filters and refuses all preparation/execution/upload tools. `ZENITH_DIAGNOSTICS=1` emits bounded metadata, never bodies/arguments.
 
@@ -36,7 +36,14 @@ Set `ZENITH_TOKEN_VAULT` to the vault path and unset `ZENITH_TOKEN`/`ZENITH_TOKE
 
 The backend is an OAuth resource server, not a newly invented authorization server. Configure your provider's issuer, JWKS, OAuth client identity claim, signed Zenith-user mapping, exact resource audience and scopes. The backend intersects token authority with a live grant created at `/integrations` by a signed-in workspace member. Revoke that grant to deny later calls.
 
-`node packages/bridge/cli.mjs remote-config` prints native Claude/Codex HTTP configuration with explicit scope selection and no credential embedded. Use each native client's OAuth flow for authorization-code/PKCE, consent, refresh and logout. The local connector can alternatively use a supplied JWT file/environment/vault; it does not secretly implement browser login or refresh. A missing or misconfigured provider remains a deployment prerequisite.
+`remote-config` bootstraps native Claude/Codex HTTP configuration **without requiring, reading, or embedding an existing credential**. Supply only an explicit trusted HTTPS origin and selection, or select a named v2 profile. The command makes no network request:
+
+```bash
+ZENITH_API_VERSION=2 ZENITH_URL=https://YOUR_ZENITH_HOST ZENITH_WORKSPACE_ID=WORKSPACE_ID \
+  node packages/bridge/cli.mjs remote-config
+```
+
+The output includes a Claude MCP HTTP configuration and a Codex TOML entry with the same selected resource. It is configuration data, not evidence that login or connectivity succeeded. Use each native client's OAuth flow for authorization-code/PKCE, consent, refresh and logout. The local connector can alternatively use a supplied JWT file/environment/vault; it does not secretly implement browser login or refresh. A missing or misconfigured provider remains a deployment prerequisite.
 
 ## Exact changes and handoff
 

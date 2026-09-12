@@ -15,6 +15,14 @@ The SDK integration test starts each copied installed package outside the checko
 
 Backend focused evidence includes persistent-journal/concurrency/restart tests, coordinator authorization/plan/approval tests, JWT claim/scope/revocation tests and binary-source boundary tests. The backend source checkpoint also passed a clean install, whole-application TypeScript compilation and the original reader contract tests in GitHub Actions. Real action/provider/store acceptance remains your separate validation work.
 
-The local execution environment has no registry/GitHub DNS. Existing pinned tooling was obtained from an authenticated CI artifact; clean dependency lock resolution/installation and generated output are verified again in GitHub. Source transfers use exact checksum-verified, allowlisted patches on feature branches; temporary assembly workflows remove themselves. Nothing is force-pushed, merged or published by those transfers.
+The local execution environment has no registry/GitHub DNS. Existing pinned tooling was obtained from an authenticated CI artifact; clean dependency lock resolution/installation and generated output are verified again in GitHub. Source transfers use exact checksum-verified, allowlisted patches on feature branches; temporary assembly workflows have been removed. Nothing is force-pushed, merged or published by those transfers.
 
 No independent subagent or native coding-client run is claimed. Manual release signing is implemented but not invoked; configured workflows and checksum inventories do not establish that an artifact has already been signed.
+
+## Integration follow-up
+
+Local Linux checks with Node 22.16.0 pass: `npm run verify` (127 tests: 126 passed and one Windows-only test skipped), `npm run contracts:check -- --backend /mnt/data/work/zenith` (actual companion schema parity), and `npm run release:prepare` (both reproducible local archives). Read [PR #4 checks](https://github.com/GODOSTROYER/Zenith-plugins/pull/4/checks) for the final-head cross-platform result rather than treating an earlier run as current evidence.
+
+The Windows-specific native vault test passed in [assembly run 34725765364](https://github.com/GODOSTROYER/Zenith-plugins/actions/runs/34725765364) on source `4998bf9`. That run also regenerated and committed the bundles after full Linux verification. The generated control bundle matches the independently rebuilt local blob `1cc10d12b90d279f041bcb0f1ba4a520b7a9b60c`.
+
+Regression coverage includes token-free native OAuth setup, no access to configured token sources during configuration generation, explicit HTTPS/scope requirements, native Windows JSON/Unicode input, short-path alias validation, device/stream/traversal refusal, and non-secret native error stages. The Windows suite exercises actual DPAPI encryption/decryption, create-only behavior and private security descriptors; its success is separate from a skipped Linux test.

@@ -2,7 +2,7 @@
 
 One standalone connector and native Codex/Claude Code packages, generated from shared sources.
 
-**0.2.0-dev.1 — opt-in reviewed operations.** The legacy v1 reader remains the default. Version 2 requires the companion Zenith control implementation; it never turns on server writes or obtains additional permissions automatically.
+**0.2.0-dev.1 — opt-in reviewed operations.** The legacy v1 reader remains the default. Version 2 requires the control backend merged in [Zenith PR #6](https://github.com/GODOSTROYER/zenith/pull/6); it never turns on server writes or obtains additional permissions automatically.
 
 ## Capabilities
 
