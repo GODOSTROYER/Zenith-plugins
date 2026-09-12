@@ -4,14 +4,18 @@ import { constants } from 'node:fs';
 import { mkdtemp, writeFile, lstat, open, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { sameFileIdentity } from '../packages/bridge/config.mjs';
+import { sameFileIdentity, readBoundedFile } from '../packages/bridge/config.mjs';
 
-test('a newly created regular file retains identity through a bounded-read open', async t => {
+test('bounded file reading verifies identity or refuses an unavailable Windows device', async t => {
   const dir = await mkdtemp(path.join(tmpdir(), 'zenith identity fixture '));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const name = path.join(dir, 'ids.json');
   await writeFile(name, '{"version":1,"workspaceId":"fixture"}');
   const before = await lstat(name, { bigint: true });
+  if (process.platform === 'win32' && before.dev === 0n) {
+    await assert.rejects(readBoundedFile(name, 4096), { code: 'file_identity_unverified' });
+    return;
+  }
   const handle = await open(name, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
   try {
     const after = await handle.stat({ bigint: true });

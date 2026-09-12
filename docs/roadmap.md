@@ -8,7 +8,7 @@ This is a continuation checklist, not an assertion that unfinished capabilities 
 
 Use Zenith master containing `2d56ecc3abe77f560d9c58bee14370b0789f386a`. Run full application typecheck/lint/tests/build and exercise real file-store/Postgres reads, middleware boundaries, revoked membership, foreign project/environment/deployment IDs, stored findings, redacted exports and provider refusals. Prove inspection starts no deploy/alert side effects.
 
-Run the opt-in live command against that real instance, then validate actual Codex and Claude binaries: root interpolation, environment inheritance, skill discovery, tool schemas, inspect/preview outcomes and prompt-injection scenarios. Record exact versions, OS and negotiated protocol; copied Node processes do not prove these behaviors. Complete clean npm installation evidence in CI.
+Run the opt-in live command against that real instance, then validate actual Codex and Claude binaries: root interpolation, environment inheritance, skill discovery, tool schemas, inspect/preview outcomes and prompt-injection scenarios. Record exact versions, OS and negotiated protocol; copied Node processes do not prove these behaviors. Clean npm installation has passed in CI; retain that check on every change.
 
 ## 2. Replace the limited protocol and add remote authorization
 
@@ -24,4 +24,4 @@ Reuse Zenith source validation, pinned recipe, app-owner grants and durable publ
 
 ## 5. Release and lifecycle
 
-Local deterministic review archives and integrity checks exist. Still required: actual supported-client/OS evidence, maintainable compatibility/deprecation policy, pinned CI action revisions, private security review, license decision and explicit publication authorization. Checksums are not signatures. Do not mark the complete product release-ready based on unit-test counts. No workflow publishes packages, exposes a public endpoint or deploys production infrastructure.
+Local deterministic review archives and integrity checks exist. Still required: actual supported-client/OS evidence, maintainable compatibility/deprecation policy, private security review, license decision and explicit publication authorization. Checksums are not signatures. Do not mark the complete product release-ready based on unit-test counts. No workflow publishes packages, exposes a public endpoint or deploys production infrastructure.

@@ -11,3 +11,5 @@ Official documentation inspected on September 12, 2026 informs development contr
 - [Merged Zenith reader baseline](https://github.com/GODOSTROYER/zenith/tree/2d56ecc3abe77f560d9c58bee14370b0789f386a): authoritative source for this increment's application contract.
 
 The user's `Zenith-plugins-build-prompt.md` supplied the implementation target. Its requested [rethinking-skills-and-prompts article](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra) could not be retrieved; no contents are invented or attributed to it. Earlier research and protocol version assertions were treated as hypotheses and checked against the current repository.
+
+- [Node 22.16 bundled libuv Windows filesystem implementation](https://github.com/nodejs/node/blob/v22.16.0/deps/uv/src/win/fs.c): path and handle volume serial width handling used for file-identity compatibility.

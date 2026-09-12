@@ -52,7 +52,7 @@ The bridge exposes 13 curated read/preview/export tools and five shared skills: 
 
 ## Evidence and continuation
 
-Local Linux verification: **92 tests passed**, strict client typecheck, source syntax checks, package generation and complete runtime/skill integrity checks. The tests include copied-package stdio/HTTP fixtures, setup, credential rotation, cancellation and reproducible npm archives. They are **not** real Zenith, native Codex/Claude, OAuth or provider tests. A clean npm registry install remains unverified locally because of DNS restrictions. [Exact evidence](docs/verification.md).
+Local Linux verification: **96 tests passed**, strict client typecheck, source syntax checks, package generation and complete runtime/skill integrity checks. The tests include copied-package stdio/HTTP fixtures, setup, credential rotation, cancellation and reproducible npm archives. They are **not** real Zenith, native Codex/Claude, OAuth or provider tests. Clean npm installation passed in GitHub CI; local registry access remains DNS-restricted. [Exact evidence](docs/verification.md).
 
 ```bash
 npm run release:prepare  # local review archives and checksums; never publishes

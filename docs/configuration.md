@@ -45,7 +45,7 @@ This **trusted user profile** is different from a repository association. Do not
 
 IDs allow letters, digits, underscores and hyphens, up to 100 characters. Association files accept only `version: 1`, `workspaceId`, optional `projectId` and `environmentId`; they cannot choose origins or credentials. Version dev.2 rejects ambiguous configurations previously accepted with implicit precedence. Resolve ambiguity rather than depending on precedence.
 
-Windows private-file ACL validation is unimplemented, so profiles and token files fail closed on Windows. Explicit URL/scope/environment-token configuration remains available. OS CI is a compatibility check, not evidence of safe Windows credential-file storage.
+Windows private-file ACL validation is unimplemented, so profiles and token files fail closed on Windows. Explicit URL/scope/environment-token configuration remains available. ID-only association files are also refused with `file_identity_unverified` when the Windows runtime reports no device identity; use explicit scope environment variables rather than bypassing the check. OS CI is a compatibility check, not evidence of safe Windows credential-file storage.
 
 ## Doctor and live checks
 
@@ -64,6 +64,7 @@ Zenith consumes `ZENITH_AGENT_READER=1`, `ZENITH_AGENT_ORIGIN` and `ZENITH_AGENT
 | `configuration` / `ambiguous_configuration` | Choose one complete trusted configuration mode; do not combine profile/env or association/scope settings |
 | `profile_exists` | Choose a new profile path; setup never overwrites |
 | `credential_permissions` / `profile_directory` | Fix owned private POSIX file/directory permissions |
+| `file_identity_unverified` | Use explicit scope environment variables on Windows; zero device identity is not accepted as a wildcard |
 | `file_acl_unverified` | Use explicit environment configuration on Windows; do not disable the check |
 | `insecure_endpoint` | Use HTTPS or explicit literal-loopback development opt-in, never disable TLS verification |
 | `http_401` | Ask the operator for a valid scoped replacement; never paste a token into chat |

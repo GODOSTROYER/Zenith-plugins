@@ -21,6 +21,10 @@ export async function readBoundedFile(filePath, maxBytes, privateFile = false) {
   if (privateFile && process.platform === 'win32') fail('file_acl_unverified', 'Private-file ACL validation is not implemented on Windows. Use the explicit environment credential configuration.');
   const before = await lstat(filePath, { bigint: true });
   if (!before.isFile() || before.isSymbolicLink()) fail('unsafe_file', 'Configuration and credentials must be regular files, not links or devices.');
+  // Some Windows path-stat implementations report no device identity. Never
+  // treat zero as a wildcard or compare only an inode across volumes.
+  if (process.platform === 'win32' && before.dev === 0n)
+    fail('file_identity_unverified', 'This Windows runtime does not report a verifiable file device identity. Use explicit scope environment variables instead of an association file.');
   const file = await open(filePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
   try {
     const stat = await file.stat({ bigint: true });

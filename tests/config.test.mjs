@@ -63,10 +63,14 @@ test('environment-only configuration requires explicit scope and one credential'
   for (const values of [{}, { ...base, ZENITH_WORKSPACE_ID: '' }, { ...base, ZENITH_TOKEN: '' }, { ...base, ZENITH_TOKEN_FILE: '/unused' }, { ...base, ZENITH_ALLOW_LOOPBACK_HTTP: 'true' }])
     await assert.rejects(configuredClient(values));
 });
-test('explicit ID-only association is supported without scope environment', async t => {
+test('ID-only association verifies scope or refuses unavailable Windows identity', async t => {
   const f = await fixture(t); await writeFile(f.output, JSON.stringify(f.value.association));
-  const c = await configuredClient({ ZENITH_URL: 'https://host.invalid', ZENITH_ASSOCIATION_FILE: f.output, ZENITH_TOKEN: token });
-  assert.equal(c.scope.projectId, 'project');
+  const env = { ZENITH_URL: 'https://host.invalid', ZENITH_ASSOCIATION_FILE: f.output, ZENITH_TOKEN: token };
+  if (process.platform === 'win32' && (await lstat(f.output, { bigint: true })).dev === 0n) {
+    await assert.rejects(configuredClient(env), { code: 'file_identity_unverified' });
+  } else {
+    assert.equal((await configuredClient(env)).scope.projectId, 'project');
+  }
 });
 test('private profile refuses permissive permissions', posix, async t => {
   const f = await fixture(t); await writeFile(f.output, JSON.stringify(f.value), { mode: 0o644 });

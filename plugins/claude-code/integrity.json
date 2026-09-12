@@ -7,7 +7,7 @@
     "README.md": "dd114faf8cf3e0117d5ccbde869da616973d5030748fea507c8c030444441e14",
     "package.json": "9564a8a6c9c73d07e3edce602a4295d731bc2d08b6bf80714eb18a5bea4c2a5d",
     "runtime/bridge/cli.mjs": "6c9824dda389aa18fa6d872782d82cddba9dac86e417eb179aec13e8404a8a1a",
-    "runtime/bridge/config.mjs": "3055be0813056ed312f20286b07de1cb475ad84036723705a296a72ec29c2868",
+    "runtime/bridge/config.mjs": "eeba0e331ad55643da745608a544b458c31d30a54b305bf6469dcbd68d7e5514",
     "runtime/bridge/doctor.mjs": "0613d1501bdf99e34e389aaf499af7ab2dead74a15f78184b0617f3efe055d48",
     "runtime/bridge/entrypoint.mjs": "34de30f6e946655b5a7faf8f7bb5a703ed8f24c3224fa9ceca6c88dbf27d0d76",
     "runtime/client/dist/index.d.ts": "cc22d3d21eeda178710f9f3509d45bc57019f0aad050be4d7e8ad66edcb53d35",

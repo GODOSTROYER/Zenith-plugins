@@ -19,6 +19,6 @@ The user-provided `Zenith-plugins-build-prompt.md` is the product target, not a 
 | Hosted source publishing | Not implemented; requires backend grants/jobs and safe source transfer |
 | Native skill evaluation / provider/store parity / distributed guarantees | Not verified; fixtures are not substitutes |
 
-No subagent facility was available; both client tracks were implemented sequentially from shared sources. No independent-agent review is claimed. Registry access and native binaries were unavailable in the local environment.
+No subagent facility was available; both client tracks were implemented sequentially from shared sources. No independent-agent review is claimed. Registry access and native binaries were unavailable in the local environment. Clean installs succeeded in GitHub CI, which also exposed macOS symlinked-entrypoint and Windows stat-identity differences. Symlinked launch was fixed; Windows file configuration refuses unavailable identity rather than bypassing it. Environment-based connections remain supported.
 
 Next: run the reader against isolated real Zenith data and actual client binaries; capture negotiated versions and authorization evidence. Then migrate the shared protocol through a maintained SDK without weakening bounds or contracts. Add backend durable preparation/approval/execution and restart-safe operations before any write tool. Remote OAuth and source publishing have independent release gates.
