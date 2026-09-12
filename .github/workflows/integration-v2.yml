@@ -1,0 +1,47 @@
+name: Integration v2
+on:
+  push:
+    branches: [feat/agent-workflows-v2]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: integration-v2-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run verify
+      - name: Capture clean source and native-client candidates
+        if: github.event_name == 'push'
+        run: |
+          tar -czf "$RUNNER_TEMP/plugin-source.tar.gz" --exclude='.git' --exclude='node_modules' --exclude='*.token' --exclude='*.credentials.json' --exclude='.env*' .
+          mkdir -p "$RUNNER_TEMP/native-clients"
+          cd "$RUNNER_TEMP/native-clients"
+          npm init -y >/dev/null
+          npm install --ignore-scripts --save-exact @openai/codex @anthropic-ai/claude-code
+          ./node_modules/.bin/codex --version
+          ./node_modules/.bin/claude --version
+          tar -czf "$RUNNER_TEMP/native-clients.tar.gz" package.json package-lock.json node_modules
+          cp "$(command -v node)" "$RUNNER_TEMP/node-runtime"
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push'
+        with:
+          name: native-plugin-development
+          path: |
+            ${{ runner.temp }}/plugin-source.tar.gz
+            ${{ runner.temp }}/native-clients.tar.gz
+            ${{ runner.temp }}/node-runtime
+          retention-days: 1
+          if-no-files-found: error
+          compression-level: 0
