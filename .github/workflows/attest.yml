@@ -1,0 +1,59 @@
+name: Attest reviewed plugin artifacts
+on:
+  workflow_dispatch:
+    inputs:
+      expected_commit:
+        description: Exact reviewed main commit SHA
+        type: string
+        required: true
+      confirmation:
+        description: Type CREATE_REVIEW_ARTIFACTS to authorize signing (not publication)
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  attest:
+    if: github.ref == 'refs/heads/main' && inputs.confirmation == 'CREATE_REVIEW_ARTIFACTS'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Require the exact reviewed commit
+        env:
+          EXPECTED: ${{ inputs.expected_commit }}
+        run: |
+          test "$EXPECTED" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$EXPECTED"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run release:prepare
+      - name: Require committed generated artifacts
+        run: git diff --exit-code -- plugins packages/client/dist packages/control/dist .agents .claude-plugin
+      - name: Generate runtime dependency SBOM from the reviewed lockfile
+        run: npm sbom --package-lock-only --omit=dev --sbom-format=cyclonedx --ignore-scripts > artifacts/dependencies.cdx.json
+      - name: Attest archive build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: artifacts/*.tgz
+          create-storage-record: false
+      - name: Attest runtime dependency SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: artifacts/*.tgz
+          sbom-path: artifacts/dependencies.cdx.json
+          create-storage-record: false
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: attested-review-artifacts-${{ github.sha }}
+          retention-days: 7
+          path: artifacts/

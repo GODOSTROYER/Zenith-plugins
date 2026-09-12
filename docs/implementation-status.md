@@ -1,24 +1,11 @@
-# Implementation checkpoint — dev.2
+# Implementation checkpoint — 0.2.0-dev.1
 
-[Home](../README.md) · [Verification](verification.md) · [Release gates](roadmap.md)
+[Home](../README.md) · [Control contract](control-v2.md) · [Remaining scope](roadmap.md)
 
-Baseline inspected: `Zenith-plugins/main` at `13d1497b91aa990d1707ee3a1c164b49a327acfb`; Zenith `master` at `2d56ecc3abe77f560d9c58bee14370b0789f386a`. The latter merged the read-only companion previously described as unmerged. No backend code is changed by this increment.
+This increment builds on unmerged plugin PR #2, preserving the legacy reader while adding a separately enabled maintained-SDK control path. The backend owns durable proposals, trusted browser approval, live authorization and actual actions. Packages own client setup, workflow knowledge, source preflight and transport.
 
-The user-provided `Zenith-plugins-build-prompt.md` is the product target, not a claim that this increment completes its definition of done. Analysis found an existing dev.1 reader, 29 fixture tests, two skills and generated packages. It also found initialization races, permissive response validation, configuration reads bounded only after allocation and incomplete generated-file checks. This increment extends that implementation rather than replacing the architecture.
+The implemented control path covers nine proposal kinds and 24 total scoped tools. All mutation operations require persisted real-browser approval and exact-state checks. No client action can self-approve, extend a backend scope, or make unsupported providers deploy.
 
-| Prompt area | Status in this increment |
-| --- | --- |
-| Two-repository separation / standalone MCP / two native package layouts | Retained and strengthened; no backend internals in distribution |
-| Setup and actionable diagnostics | Implemented private POSIX profiles, explicit env fallback, scope/contract verification and opt-in redacted diagnostics |
-| Transport reliability | Implemented initialization state machine, cancellation/shutdown, immutable request/destination scope, deadlines and contract checks |
-| Shared workflows | Five generated skills: connect, inspect, plan, observe, export |
-| Reproducible bundles / local release preparation | Implemented full file inventories, hidden-file archive checks and deterministic local review artifacts; no publishing |
-| Real local Zenith / actual Codex and Claude behavior | Test command supplied, not executed against real Zenith/native binaries here |
-| Maintained MCP SDK / remote OAuth | Not implemented; limited stateless JSON profile remains explicit |
-| Editing, deploy, rollback, approval, persistent receipts/operations | Blocked on authoritative backend implementation and tests; no client bypass |
-| Hosted source publishing | Not implemented; requires backend grants/jobs and safe source transfer |
-| Native skill evaluation / provider/store parity / distributed guarantees | Not verified; fixtures are not substitutes |
+The backend writes are deliberately constrained to its supported single-writer POSIX file-store topology. Remote OAuth uses a maintained external authorization provider and native client lifecycle; it does not add an in-house authorization server. Optional distributed coordination, notification webhooks and GitHub comment automation remain open in the roadmap.
 
-No subagent facility was available; both client tracks were implemented sequentially from shared sources. No independent-agent review is claimed. Registry access and native binaries were unavailable in the local environment. Clean installs succeeded in GitHub CI, which also exposed macOS symlinked-entrypoint and Windows stat-identity differences. Symlinked launch was fixed; Windows file configuration refuses unavailable identity rather than bypassing it. Environment-based connections remain supported.
-
-Next: run the reader against isolated real Zenith data and actual client binaries; capture negotiated versions and authorization evidence. Then migrate the shared protocol through a maintained SDK without weakening bounds or contracts. Add backend durable preparation/approval/execution and restart-safe operations before any write tool. Remote OAuth and source publishing have independent release gates.
+Both repository PRs are required for v2 operation. Plugin PR #2 is a separate prerequisite until merged. No workflow or agent merges the PRs, publishes packages, exposes a service or deploys infrastructure. The early backend checkpoint PR contained CI setup only; use the actual implementation PR linked in the delivery message, not the checkpoint alone.

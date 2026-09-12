@@ -1,7 +1,7 @@
 {
   "name": "zenith",
-  "version": "0.1.0-dev.2",
-  "description": "Read-only Zenith inspection and non-executable deployment previews. Development build.",
+  "version": "0.2.0-dev.1",
+  "description": "Zenith inspection, exact browser-reviewed changes, deployment and supported source publishing. Writes require explicit v2 enablement.",
   "author": {
     "name": "GODOSTROYER"
   },

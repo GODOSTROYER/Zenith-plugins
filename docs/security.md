@@ -1,3 +1,5 @@
+> **Legacy version-1 reference.** These restrictions and commands describe the retained v1 reader. For current v2 operations use [the control guide](control-v2.md) and [the current tool inventory](tool-reference.md).
+
 # Security and operational boundaries
 
 [Home](../README.md) · [Configuration](configuration.md) · [Release gates](roadmap.md)

@@ -90,6 +90,10 @@ export async function serve(client, { input = process.stdin, output = process.st
   }
 }
 export async function main(args = process.argv.slice(2)) {
+  if (process.env.ZENITH_API_VERSION === '2' || process.env.ZENITH_PROFILES_FILE || ['profile','source','remote-config'].includes(args[0])) {
+    const { main: controlMain } = await import('../control/cli.mjs'); await controlMain([...args]); return;
+  }
+  if (process.env.ZENITH_API_VERSION && process.env.ZENITH_API_VERSION !== '1') throw new ClientError('unsupported_version', 'Select API version 1 or 2 explicitly.');
   if (['--help', 'help'].includes(args[0])) {
     console.log('Zenith connector: stdio | doctor | setup\nUse ZENITH_CONFIG_FILE, or explicit ZENITH_URL / ZENITH_WORKSPACE_ID / ZENITH_TOKEN_FILE (or ZENITH_TOKEN).\nSetup: setup --output ABSOLUTE_PATH --url TRUSTED_ORIGIN --workspace ID --token-file ABSOLUTE_PATH [--project ID] [--environment ID] [--allow-loopback-http]\nSetup creates a new private profile, never a credential or deployment. No implicit repository configuration.\nLocal HTTP requires explicit opt-in. See docs/configuration.md.'); return;
   }

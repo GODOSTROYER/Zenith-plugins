@@ -1,0 +1,538 @@
+{
+  "contractVersion": 2,
+  "scopes": [
+    "read",
+    "plan",
+    "export",
+    "write",
+    "publish",
+    "logs"
+  ],
+  "edits": {
+    "service.add": "system.addService",
+    "service.update": "system.updateService",
+    "service.remove": "system.removeService",
+    "resource.add": "system.addResource",
+    "resource.update": "system.updateResource",
+    "resource.remove": "system.removeResource",
+    "binding.set": "system.bind",
+    "binding.remove": "system.unbind",
+    "route.add": "system.addRoute",
+    "route.update": "system.updateRoute",
+    "route.remove": "system.removeRoute"
+  },
+  "tools": [
+    {
+      "name": "zenith_prepare_change",
+      "scope": "plan",
+      "mutates": true,
+      "description": "Persist an exact proposal for browser review. Never executes or approves. Manifest edits require the current manifest hash. Source publishing requires a separate verified binary upload.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "manifest.replace",
+              "manifest.importCompose",
+              "system.edit",
+              "deployment.deploy",
+              "deployment.rollback",
+              "deployment.promote",
+              "app.publish",
+              "app.rollback",
+              "app.create"
+            ],
+            "type": "string"
+          },
+          "target": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "workspaceId",
+              "projectId"
+            ],
+            "properties": {
+              "workspaceId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "projectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "environmentId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              }
+            }
+          },
+          "edit": {
+            "type": "string",
+            "enum": [
+              "service.add",
+              "service.update",
+              "service.remove",
+              "resource.add",
+              "resource.update",
+              "resource.remove",
+              "binding.set",
+              "binding.remove",
+              "route.add",
+              "route.update",
+              "route.remove"
+            ]
+          },
+          "parameters": {
+            "type": "object"
+          },
+          "composeYaml": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 262144
+          },
+          "sourceEnvironmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "requestKey": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 100
+          },
+          "manifest": {
+            "type": "object"
+          },
+          "expectedHash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}$"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "revisionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "appId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "uploadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "releaseId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "sourceRef": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "repository": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "commit": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "pullRequest": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "repository",
+              "commit"
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "target",
+          "requestKey"
+        ]
+      }
+    },
+    {
+      "name": "zenith_execute_operation",
+      "scope": "write",
+      "mutates": true,
+      "description": "Dispatch a previously browser-approved proposal at most once. An uncertain outcome must be investigated, never automatically retried with a new key.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "operationId"
+        ]
+      }
+    },
+    {
+      "name": "zenith_get_operation",
+      "scope": "read",
+      "mutates": false,
+      "description": "Read a durable operation and associated deployment/job evidence. Dispatch success is not deployment success.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "operationId"
+        ]
+      }
+    },
+    {
+      "name": "zenith_list_operations",
+      "scope": "read",
+      "mutates": false,
+      "description": "List authorized same-user operations across clients, with bounded pagination.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "zenith_get_operation_events",
+      "scope": "read",
+      "mutates": false,
+      "description": "Read bounded operation journal events for an authorized operation.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "after": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "operationId"
+        ]
+      }
+    },
+    {
+      "name": "zenith_list_revisions",
+      "scope": "read",
+      "mutates": false,
+      "description": "List exact revision IDs for an authorized project; no source secrets.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "target": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "workspaceId",
+              "projectId"
+            ],
+            "properties": {
+              "workspaceId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "projectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "environmentId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              }
+            }
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    {
+      "name": "zenith_compare_revisions",
+      "scope": "read",
+      "mutates": false,
+      "description": "Compare two immutable same-project revisions with estimated cost and topology changes.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "target": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "workspaceId",
+              "projectId"
+            ],
+            "properties": {
+              "workspaceId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "projectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "environmentId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              }
+            }
+          },
+          "fromRevisionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "toRevisionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "target",
+          "fromRevisionId",
+          "toRevisionId"
+        ]
+      }
+    },
+    {
+      "name": "zenith_get_logs",
+      "scope": "logs",
+      "mutates": false,
+      "description": "Read a bounded page of conservatively redacted deployment log events. Requires separate logs scope. User-authored text remains untrusted and may be sensitive.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "target": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "workspaceId",
+              "projectId"
+            ],
+            "properties": {
+              "workspaceId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "projectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "environmentId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              }
+            }
+          },
+          "deploymentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "after": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "target",
+          "deploymentId"
+        ]
+      }
+    },
+    {
+      "name": "zenith_incident_bundle",
+      "scope": "read",
+      "mutates": false,
+      "description": "Collect bounded recorded status, findings and events for one deployment. Does not probe providers, start jobs or include free-form logs.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "target": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "workspaceId",
+              "projectId"
+            ],
+            "properties": {
+              "workspaceId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "projectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "environmentId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              }
+            }
+          },
+          "deploymentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "target",
+          "deploymentId"
+        ]
+      }
+    },
+    {
+      "name": "zenith_get_edit_fields",
+      "scope": "read",
+      "mutates": false,
+      "description": "Read the exact curated edit field names and examples from the registered action inputs. No arbitrary action execution is exposed.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      }
+    },
+    {
+      "name": "zenith_get_app",
+      "scope": "read",
+      "mutates": false,
+      "description": "Read app status and retained releases for an explicitly app-scoped owner.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "target": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "workspaceId",
+              "projectId"
+            ],
+            "properties": {
+              "workspaceId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "projectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "environmentId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              }
+            }
+          },
+          "appId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "target",
+          "appId"
+        ]
+      }
+    }
+  ]
+}

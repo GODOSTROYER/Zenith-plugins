@@ -1,12 +1,10 @@
 ---
 name: plan
-description: Review a Zenith deployment preview, including cost estimates, blockers, environment selection and approval requirements; never execute it.
+description: Prepare an exact change or explain a non-executable Zenith deployment preview.
 ---
 
-# Review the next change
+# Zenith plan
 
-Use when the user wants to understand a proposed deployment before acting. Establish explicit context, check the capabilities and confirm the intended environment. Request the deployment preview only when the credential includes the plan scope.
+First inspect the selected target and capabilities. The v1 `zenith_plan_deploy` tool returns a non-executable preview and no receipt. For an executable v2 proposal use `zenith_prepare_change` with an allowed kind, explicit target and a stable requestKey. Reuse that key only for identical inputs. Attach an actual source repository/commit/PR when relevant; this is provenance, not authorization.
 
-Describe changes, estimated cost delta, warnings, and blockers separately. A preview has no executable receipt and is not human approval. This version cannot apply, approve, roll back, change policy, or publish source. Direct the user to Zenith's reviewed interface for those operations, without impersonating Navigator or applying exported Terraform as a workaround.
-
-AWS Preview is plan/export only. Sandbox outcomes are simulated. LocalStack evidence covers the supported subset, not real AWS. Never infer verification from a green status alone.
+Present the exact plan, resource changes, estimated cost, blockers, expiry, digest and approval URL. Persisting a plan does not modify infrastructure. Every write requires browser review; never supply an agent-authored approval flag. Changed state or permissions invalidate execution; prepare a new reviewed intent rather than weakening a policy.
