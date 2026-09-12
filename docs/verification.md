@@ -1,40 +1,39 @@
-# Verification evidence
+# Verification evidence — dev.2
 
-[Home](../README.md) · [Architecture](architecture.md) · [Release gates](roadmap.md)
+[Home](../README.md) · [Implementation status](implementation-status.md) · [Release gates](roadmap.md)
 
-## Evidence date and baseline
+## Baselines and scope
 
-Recorded September 12, 2026. Local runtime: Node 22.16.0; TypeScript 5.8.3. Zenith source baseline: `70d9c4a610b96f3d45bed0d85bd4155bbbf295f7`. These are development results, not a release certificate.
+September 12, 2026. Local environment: Linux, Node 22.16.0, TypeScript 5.8.3. Inspected plugin base: `13d1497b91aa990d1707ee3a1c164b49a327acfb`; merged Zenith reader: `2d56ecc3abe77f560d9c58bee14370b0789f386a`.
 
-The earlier 22-byte ZIP contained no entries. The earlier claim of an implementation and 71 passing tests cannot be substantiated and is not used as evidence. This draft records only inspected files and commands actually run in the current workspace.
+Source was retrieved through the authenticated GitHub connection and reconstructed in the execution workspace. Direct Git clone/registry DNS access was unavailable. Unchanged files are preserved when creating the PR tree; no claim of a successful network clone is made. The execution environment restarted after local verification and during upload; source changes were preserved in GitHub objects. Generated packages must be synchronized from the same source before this PR is complete.
 
-## Local distribution checks
+## Local results
 
-| Command | Result | What it proves |
-| --- | --- | --- |
-| `npm run typecheck` | Passed | Strict TypeScript checks for the transport client only |
-| `npm run build` | Passed | Client compilation and two generated package layouts |
-| `npm test` | 29 passed; 0 failed; 0 skipped | Transport/unit assertions and two copied-package stdio/HTTP fixture flows |
-| `npm run check` | Passed | Manifest/runtime layout, generated equality and local Markdown link targets |
+`npm run verify` and `npm run release:prepare` both passed locally before the environment restart. Earlier development runs passed 72, 87, 88 and then 92 tests as coverage was added; these are successive suites, not additive totals.
 
-The tests exercise origin validation, association restrictions, request framing, scope headers, no write forwarding, tool filtering, bounded responses, protocol refusals, private credential files, and package paths containing spaces. Both package smoke tests start a real Node stdio process from a copied installation outside the checkout and call an authenticated HTTP **fixture**.
+| Command/check | Evidence |
+| --- | --- |
+| `npm run verify` | Passed: typecheck, build, 92 tests, syntax/integrity/layout/link checks |
+| `npm run release:prepare` | Passed: verification plus two local review archives and manifest/checksums |
+| Repeated build | All 34 generated files unchanged |
+| `npm run typecheck` | Passed: strict transport client TypeScript only |
+| `npm run build` | Passed: compiled client and both generated package layouts |
+| `npm test` | 92 passed, zero failed/cancelled/skipped on local Linux |
+| Copied-package tests | Actual Node stdio subprocesses and authenticated HTTP fixtures, not native agent clients |
+| Setup/profile tests | Private permissions, non-overwrite, bounded reads, ambiguity refusal and local token rotation/deletion |
+| Archive tests | npm packs both packages offline; hidden manifests and every inventory hash checked; repeated archives byte-identical locally |
 
-They do not launch Codex or Claude Code, evaluate an actual model's skill selection, or call a running Zenith application. A passing fixture does not prove the companion endpoint, provider adapter or database behavior.
+## What fixtures prove—and do not
 
-## Dependency installation limitation
+Tests exercise destination/scope immutability, request snapshotting, no write forwarding, protocol/result validation, initialization races, acknowledgement failure, duplicate IDs, cancellation, EOF/shutdown, byte limits, deadlines, credential handling and diagnostic minimization. The smoke-script fixture test uses real HTTP and copied doctor subprocesses but explicitly labels its server as a fixture.
 
-`npm install --package-lock-only --ignore-scripts --fetch-retries=0 --fetch-timeout=10000` failed with `EAI_AGAIN` reaching the npm registry in the shell environment. Verification used the already-installed TypeScript compiler of exactly the pinned version, linked into ignored local node_modules.
+These tests do not verify a running Zenith application, backend membership/tenant isolation, real providers, file-store/Postgres parity, native manifests or model skill selection. Malicious prose remains inert in a transport fixture; that is not a model-level prompt-injection evaluation.
 
-The lockfile's TypeScript version, tarball and integrity were taken from the official npm registry metadata for 5.8.3. A clean online `npm ci` was **not run successfully** here. CI is configured to do that; its future or remote outcome is not claimed in this document.
+## Environment and release blockers
 
-## Not verified / not implemented
+No Codex/Claude Code binaries or parallel-subagent facility were available. Both package tracks were implemented sequentially from shared sources. No live Zenith or native-client run is claimed. Remote OAuth, a maintained MCP SDK, writes/receipts/approvals, replay-safe backend operations and source publishing are not implemented in this increment.
 
-Full Zenith typecheck, lint, production build and tests; a real local inspect/preview workflow; Postgres parity; native Codex/Claude Code manifest validation and invocation; macOS/Windows behavior; browser approvals; durable write receipts, replay/restart/concurrency safety for writes; unsafe archive handling; hosted publishing; remote OAuth audience/issuer/expiry checks; public distribution.
+The pinned TypeScript compiler was already installed globally and linked into ignored local node_modules. A fresh-directory `npm ci --ignore-scripts --fetch-retries=0 --fetch-timeout=5000` with an empty cache failed with `EAI_AGAIN` resolving registry.npmjs.org. CI is configured for clean installation and Linux/macOS/Windows verification; configuration alone is not a passing CI result. POSIX private-file tests explicitly skip on Windows because ACL storage is unimplemented; environment-only transport/package tests still run.
 
-No actual parallel subagent facility was available for this increment. The client tracks were implemented sequentially from shared sources. This is disclosed instead of attributing results to nonexistent agents.
-
-## Reproduce and expand
-
-On a network-enabled clean checkout, run `npm ci --ignore-scripts` followed by `npm run verify`. Run the build a second time and require no generated diff. Review and test the companion independently on the recorded Zenith base. Capture actual client versions, negotiated protocol revisions, OS and provider evidence before changing any compatibility label.
-
-Do not convert this PR from draft based only on the fixture count. The original end-to-end acceptance criteria remain open.
+Reproduce with `npm ci --ignore-scripts && npm run verify`. Repeat the build and require unchanged generated inventories. `npm run release:prepare` creates local review artifacts only. Run `ZENITH_LIVE_TEST=1 npm run test:live` with a real isolated Zenith and scoped credential, then separately exercise actual native clients and record their versions. Missing prerequisites are blockers, never fabricated passes.

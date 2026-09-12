@@ -8,3 +8,4 @@ node_modules/
 *.credentials.json
 coverage/
 release/
+artifacts/

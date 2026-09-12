@@ -2,12 +2,12 @@
 
 [Home](../README.md) · [Verification](verification.md)
 
-Official references inspected on September 12, 2026. These inform development manifests and protocol boundaries; reading a reference does not establish client compatibility.
+Official documentation inspected on September 12, 2026 informs development contracts, not client certification.
 
-- [OpenAI plugin packaging](https://developers.openai.com/plugins/build/plugins): plugin manifest, direct MCP server map and repository marketplace conventions.
-- [Claude Code plugin reference](https://code.claude.com/docs/en/plugins-reference): package components and `${CLAUDE_PLUGIN_ROOT}` resource resolution.
-- [MCP 2025-11-25 transports](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports): stdio and Streamable HTTP behavior. This implementation provides only a limited stateless JSON-response profile.
-- [TypeScript 5.8.3 registry metadata](https://registry.npmjs.org/typescript/5.8.3): version, tarball and integrity used in the lockfile.
-- [Zenith baseline](https://github.com/GODOSTROYER/zenith/tree/70d9c4a610b96f3d45bed0d85bd4155bbbf295f7): source of application behavior and provider restrictions.
+- [OpenAI plugin packaging](https://developers.openai.com/plugins/build/plugins): manifests, direct MCP server maps and marketplace conventions.
+- [Claude Code plugin reference](https://code.claude.com/docs/en/plugins-reference): installed package components, resource roots and validation commands.
+- [MCP authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization): requirements for the still-unimplemented remote authorization gate.
+- [MCP transports](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports): stdio and Streamable HTTP context; this adapter remains limited to stateless JSON responses.
+- [Merged Zenith reader baseline](https://github.com/GODOSTROYER/zenith/tree/2d56ecc3abe77f560d9c58bee14370b0789f386a): authoritative source for this increment's application contract.
 
-Prior conversation research is not a substitute for current source or tests. No unavailable article's contents are represented here.
+The user's `Zenith-plugins-build-prompt.md` supplied the implementation target. Its requested [rethinking-skills-and-prompts article](https://developers.openai.com/blog/rethinking-skills-and-prompts-for-gpt-6-astra) could not be retrieved; no contents are invented or attributed to it. Earlier research and protocol version assertions were treated as hypotheses and checked against the current repository.
