@@ -1,8 +1,8 @@
 # Zenith — development package
 
-Version 0.1.0-dev.2. Node 22.16 or later; no runtime installation or hooks.
+Version 0.2.0-dev.1. Node 22.16 or later; no runtime installation or hooks.
 
-This package supports read-only inspection and non-executable previews against the opt-in Zenith reader. It cannot deploy, approve, upload, or authenticate with remote OAuth. Native-client compatibility remains unverified.
+Version 1 remains the read-only default. Set ZENITH_API_VERSION=2 with the companion Zenith control backend to inspect, prepare exact changes, execute browser-approved operations and package/upload supported frontend source. Writes require explicit client and server enablement. The client cannot approve its own operations. Native-client compatibility remains unverified.
 
 From this installed package directory, run:
 
@@ -11,7 +11,7 @@ node runtime/bridge/cli.mjs --help
 node runtime/bridge/cli.mjs doctor
 ```
 
-Set ZENITH_CONFIG_FILE to an explicitly created private user profile, or configure ZENITH_URL, scope IDs and one credential source. The agent process must inherit that environment. Never commit credentials, put them in chat, or let project content select a credential destination.
+For v1 use ZENITH_CONFIG_FILE. For v2 use explicit ZENITH_PROFILES_FILE and named profiles, or configure ZENITH_URL, scope IDs and one credential source. The agent process must inherit that environment. Never commit credentials, put them in chat, or let project content select a credential destination.
 
 The setup command creates a new private profile and refuses overwrites. It does not issue credentials or verify a backend. Doctor checks authenticated context, scope and capabilities, not infrastructure health. Run the stdio command through an MCP client.
 

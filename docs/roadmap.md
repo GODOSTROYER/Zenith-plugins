@@ -1,27 +1,34 @@
-# Remaining work and release gates
+# Remaining scope and decisions
 
-[Home](../README.md) · [Verification](verification.md) · [Checkpoint](implementation-status.md)
+[Home](../README.md) · [Implemented control surface](control-v2.md)
 
-This is a continuation checklist, not an assertion that unfinished capabilities exist.
+## Implemented in 0.2.0-dev.1 and its backend companion
 
-## 1. Validate the merged development reader
+- [x] Maintained SDK-backed standalone connector and two self-contained plugin packages.
+- [x] Exact persisted proposals, browser approvals, one-time dispatch, operation events and same-user cross-client handoff.
+- [x] Curated edits, manifest/Compose import, deploy, rollback and saved-revision promotion.
+- [x] App creation, digest-bound binary source upload, supported publishing and code rollback.
+- [x] Remote OAuth resource verification, live integration grants/revocation, native remote configuration and provider-owned OAuth flow.
+- [x] Named POSIX connection profiles and a Windows CurrentUser DPAPI credential source with private ACL checks.
+- [x] Scoped logs, revision comparison, incident bundles, source commit/PR provenance, eleven skills and two Claude evidence reviewers.
+- [x] Versioned contract snapshot/parity checks, strict v2 runtime/client types, runtime dependency notices and reproducible packages.
+- [x] Manually authorized review-artifact signing/SBOM workflow and documented release/compatibility process.
 
-Use Zenith master containing `2d56ecc3abe77f560d9c58bee14370b0789f386a`. Run full application typecheck/lint/tests/build and exercise real file-store/Postgres reads, middleware boundaries, revoked membership, foreign project/environment/deployment IDs, stored findings, redacted exports and provider refusals. Prove inspection starts no deploy/alert side effects.
+## Still not implemented; not disguised as testing
 
-Run the opt-in live command against that real instance, then validate actual Codex and Claude binaries: root interpolation, environment inheritance, skill discovery, tool schemas, inspect/preview outcomes and prompt-injection scenarios. Record exact versions, OS and negotiated protocol; copied Node processes do not prove these behaviors. Clean npm installation has passed in CI; retain that check on every change.
+- [ ] Coordinated PostgreSQL write journal/application transactions and multi-process execution. Current write topology intentionally refuses them.
+- [ ] Distributed quotas/rate limiting, durable notification/webhook outbox and aggregate service metrics/alert delivery.
+- [ ] GitHub PR plan-comment/check automation. Source provenance is recorded, but no GitHub access is requested and no comment bot exists.
+- [ ] A bundled OAuth authorization service or bridge-managed browser-login/refresh workflow. Use your maintained provider/native client's OAuth flow; the resource server is implemented.
+- [ ] Private named-profile ACL storage on Windows (DPAPI credential storage is separate and implemented); macOS keychain integration.
+- [ ] Full strict type coverage of the retained legacy v1 JavaScript files. The new v2 client/runtime are strictly checked.
+- [ ] Public directory submission, release publication and a chosen project license; these require owner decisions/authorization.
 
-## 2. Replace the limited protocol and add remote authorization
+## Deployment/acceptance, not missing code
 
-Migrate to a maintained MCP SDK while preserving the backend contract and bounded behavior. Validate negotiation, cancellation, sessions and streaming as applicable. Add maintained OAuth authorization with consent/PKCE and strict resource audience, issuer, expiry and scopes. Operator credentials and private profiles are not OAuth substitutes. Implement/review Windows ACL storage before enabling private files there.
+- [ ] Configure a real issuer/client/redirects/resource scopes and existing Zenith user mapping.
+- [ ] Native Codex and Claude Code discovery, login, approval UI and provider acceptance on the selected platform.
+- [ ] Set backup/retention/TLS/network policy for the long-lived supported backend.
+- [ ] Invoke the manual attested-artifact workflow after review, then verify its signatures before a separately authorized publication.
 
-## 3. Authoritative execution
-
-Implement durable expiring plan receipts and operations in Zenith, bound to identity, scope, inputs and state/policy versions. Atomically claim and validate, require trusted approval, protect replay and reconcile after restart. Test simultaneous agents and state/permission changes between review and execution before exposing curated edit/import/deploy/rollback tools. Never add a catch-all action shortcut or admin privilege changes.
-
-## 4. Supported publishing
-
-Reuse Zenith source validation, pinned recipe, app-owner grants and durable publish jobs. Package explicitly selected local source, reject traversal/symlinks/credentials and transfer bytes outside model context. Test failed candidates, healthy-release retention, probe cleanup and rollback. Do not promise arbitrary backend/Next.js publishing beyond the restricted React/Vite source contract.
-
-## 5. Release and lifecycle
-
-Local deterministic review archives and integrity checks exist. Still required: actual supported-client/OS evidence, maintainable compatibility/deprecation policy, private security review, license decision and explicit publication authorization. Checksums are not signatures. Do not mark the complete product release-ready based on unit-test counts. No workflow publishes packages, exposes a public endpoint or deploys production infrastructure.
+Do not remove topology/authentication guards to check off a feature. No claim is made that every optional roadmap suggestion or production topology is finished.

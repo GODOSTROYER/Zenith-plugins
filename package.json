@@ -1,21 +1,37 @@
 {
   "name": "zenith-integrations",
-  "version": "0.1.0-dev.2",
+  "version": "0.2.0-dev.1",
   "private": true,
   "type": "module",
-  "description": "Read-only Zenith MCP connector and generated Codex / Claude Code packages.",
-  "engines": { "node": ">=22.16.0" },
+  "description": "Zenith standalone MCP and native coding-agent packages with reviewed operations.",
+  "engines": {
+    "node": ">=22.16.0"
+  },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "typecheck": "tsc --noEmit",
-    "test": "node --test",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.control.json",
+    "test": "node --test tests/*.test.mjs",
     "check": "node scripts/check.mjs",
-    "verify": "npm run typecheck && npm run build && npm test && npm run check",
+    "verify": "npm run typecheck && npm run build && npm test && npm run contracts:check && npm run check",
     "setup": "node packages/bridge/cli.mjs setup",
     "doctor": "node packages/bridge/cli.mjs doctor",
     "start": "node packages/bridge/cli.mjs stdio",
     "test:live": "node scripts/live-smoke.mjs",
-    "release:prepare": "npm run verify && node scripts/release.mjs"
+    "release:prepare": "npm run verify && node scripts/release.mjs",
+    "contracts:check": "node scripts/contracts.mjs",
+    "source": "node packages/bridge/cli.mjs source",
+    "profile": "node packages/bridge/cli.mjs profile",
+    "version:prepare": "node scripts/version.mjs"
   },
-  "devDependencies": { "typescript": "5.8.3" }
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.0.0",
+    "@types/node": "22.20.2",
+    "esbuild": "0.25.12",
+    "typescript": "5.8.3",
+    "tsx": "4.23.13"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "zod": "3.25.76"
+  }
 }

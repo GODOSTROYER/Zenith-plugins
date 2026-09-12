@@ -20,9 +20,10 @@ for (const client of ['codex', 'claude-code']) {
   assert.deepEqual(server.args, [`${client === 'codex' ? '${PLUGIN_ROOT}' : '${CLAUDE_PLUGIN_ROOT}'}/runtime/bridge/cli.mjs`, 'stdio']);
   const entry = server.args[0].replace('${PLUGIN_ROOT}', base).replace('${CLAUDE_PLUGIN_ROOT}', base);
   assert.ok(isInside(base, entry)); assert.ok((await stat(entry)).isFile());
-  for (const [source, destination] of [['packages/client/dist', 'runtime/client/dist'], ['packages/bridge', 'runtime/bridge'], ['shared/skills', 'skills']]) {
+  for (const [source, destination] of [['packages/client/dist', 'runtime/client/dist'], ['packages/bridge', 'runtime/bridge'], ['shared/skills', 'skills'], ['packages/control/dist','runtime/control']]) {
     assert.deepEqual(await inventory(path.join(base, destination)), await inventory(path.join(root, source)), `Stale ${client} ${destination}`);
   }
+  if(client==='claude-code') assert.deepEqual(await inventory(path.join(base,'agents')),await inventory(path.join(root,'shared/claude-agents')));
   const hashes = await readJson(path.join(base, 'integrity.json'));
   assert.equal(hashes.version, 1); assert.equal(hashes.algorithm, 'sha256');
   assert.deepEqual(hashes.files, await inventory(base), `Invalid ${client} package inventory`);
