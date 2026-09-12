@@ -4,11 +4,15 @@ import path from 'node:path';
 import { ClientError } from '../client/dist/index.js';
 const script = String.raw`
 $ErrorActionPreference = 'Stop'
+$stage = 'start'
 try {
+  $stage = 'load_crypto'
   Add-Type -AssemblyName System.Security
+  $stage = 'parse_input'
   $r = [Console]::In.ReadToEnd() | ConvertFrom-Json
   $p = [IO.Path]::GetFullPath([string]$r.path)
   if ($p -notmatch '^[A-Za-z]:\\' -or $p -ne [string]$r.path) { throw 'absolute local path required' }
+  $stage = 'identity'
   $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
   $system = [Security.Principal.SecurityIdentifier]::new('S-1-5-18')
   $entropy = [Text.Encoding]::UTF8.GetBytes('zenith-agent-credential-v1')
@@ -33,19 +37,28 @@ try {
     }
   }
   if ($r.verb -eq 'store') {
+    $stage = 'validate_token'
     $raw = [Text.Encoding]::UTF8.GetBytes([string]$r.token)
     if ($raw.Length -lt 1 -or $raw.Length -gt 16384) { throw 'credential size' }
     $dir = [IO.Path]::GetDirectoryName($p)
+    $stage = 'create_directory'
     if (!(Test-Path -LiteralPath $dir)) { [IO.Directory]::CreateDirectory($dir) | Out-Null; PrivateAcl $dir $true }
+    $stage = 'verify_directory'
     VerifyAcl $dir
+    $stage = 'create_only'
     if (Test-Path -LiteralPath $p) { throw 'never overwrite' }
+    $stage = 'encrypt'
     $encrypted = [Security.Cryptography.ProtectedData]::Protect($raw,$entropy,[Security.Cryptography.DataProtectionScope]::CurrentUser)
+    $stage = 'write_file'
     $stream = [IO.File]::Open($p,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
     try { $stream.Write($encrypted,0,$encrypted.Length); $stream.Flush($true) } finally { $stream.Dispose(); [Array]::Clear($raw,0,$raw.Length) }
+    $stage = 'protect_file'
     PrivateAcl $p $false
     [Console]::Out.Write('stored')
   } elseif ($r.verb -eq 'read') {
+    $stage = 'verify_file'
     VerifyAcl $p
+    $stage = 'read_file'
     $stream = [IO.File]::Open($p,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
     try {
       if ($stream.Length -gt 32768 -or $stream.Length -lt 1) { throw 'ciphertext size' }
@@ -53,12 +66,19 @@ try {
       $offset = 0
       while ($offset -lt $encrypted.Length) { $n = $stream.Read($encrypted,$offset,$encrypted.Length-$offset); if ($n -eq 0) { throw 'incomplete read' }; $offset += $n }
     } finally { $stream.Dispose() }
+    $stage = 'decrypt'
     $raw = [Security.Cryptography.ProtectedData]::Unprotect($encrypted,$entropy,[Security.Cryptography.DataProtectionScope]::CurrentUser)
     try { if ($raw.Length -gt 16384) { throw 'credential size' }; [Console]::Out.Write([Convert]::ToBase64String($raw)) }
     finally { [Array]::Clear($raw,0,$raw.Length) }
   } else { throw 'unknown operation' }
-} catch { [Console]::Error.Write('Private credential operation failed.'); exit 1 }
+} catch { [Console]::Error.Write('zenith-vault:' + $stage); exit 1 }
 `;
+const stages = new Set(['start','load_crypto','parse_input','identity','validate_token','create_directory','verify_directory','create_only','encrypt','write_file','protect_file','verify_file','read_file','decrypt']);
+/** Only a constant stage identifier may cross the native error boundary. */
+export function vaultFailureStage(value:string):string {
+  const match = /^zenith-vault:([a-z_]+)$/.exec(value);
+  return match && stages.has(match[1]!) ? match[1]! : 'unavailable';
+}
 async function invoke(verb:'store'|'read',file:string,token?:string):Promise<string>{
   if(process.platform!=='win32')throw new ClientError('vault_platform','DPAPI credentials require Windows; use an owned private token file on POSIX.');
   if(!/^[A-Za-z]:\\/.test(file)||path.win32.normalize(file)!==file)throw new ClientError('configuration_path','Use a normalized absolute local Windows vault path.');
@@ -67,12 +87,12 @@ async function invoke(verb:'store'|'read',file:string,token?:string):Promise<str
   const executable=path.win32.join(root,'System32','WindowsPowerShell','v1.0','powershell.exe');
   return new Promise((resolve,reject)=>{
     const child=spawn(executable,['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],{stdio:['pipe','pipe','pipe'],windowsHide:true,shell:false});
-    let output='',failed=false;const fail=()=>{failed=true;child.kill();};
+    let output='',diagnostic='',failed=false;const fail=()=>{failed=true;child.kill();};
     const timer=setTimeout(fail,15000);
     child.stdout.on('data',(b:Buffer)=>{output+=b.toString('utf8');if(output.length>32768)fail();});
-    child.stderr.resume();child.stdin.on('error',()=>{});
+    child.stderr.on('data',(b:Buffer)=>{diagnostic+=b.toString('utf8');if(diagnostic.length>256)fail();});child.stdin.on('error',()=>{});
     child.once('error',()=>{clearTimeout(timer);reject(new ClientError('vault_unavailable','Windows credential protection could not start.'));});
-    child.once('close',code=>{clearTimeout(timer);if(code!==0||failed)reject(new ClientError('vault_refused','DPAPI credential access refused. Verify owned private ACLs, a local regular file, and the current Windows user. Existing vaults are never overwritten.'));else resolve(output);});
+    child.once('close',code=>{clearTimeout(timer);if(code!==0||failed)reject(new ClientError('vault_refused',`DPAPI credential access refused at ${vaultFailureStage(diagnostic)}. Verify owned private ACLs, a local regular file, and the current Windows user. Existing vaults are never overwritten.`));else resolve(output);});
     child.stdin.end(JSON.stringify({verb,path:file,...(token===undefined?{}:{token})}));
   });
 }
