@@ -4,7 +4,7 @@ import {mkdtemp,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {tsImport} from 'tsx/esm/api';
-const {storeVault,readVault,vaultInput}=await tsImport('../packages/control/vault.ts',import.meta.url);
+const {storeVault,readVault,vaultInput,validateVaultPath}=await tsImport('../packages/control/vault.ts',import.meta.url);
 const credential=`za_${'W'.repeat(43)}`;
 test('vault rejects malformed credentials before native execution',async()=>{await assert.rejects(storeVault('C:\\not-used','not-a-token'),{code:'invalid_credential'});});
 test('DPAPI refuses other platforms instead of pretending encryption is available',{skip:process.platform==='win32'},async()=>{await assert.rejects(storeVault('/tmp/not-used',credential),{code:'vault_platform'});});
@@ -21,4 +21,9 @@ test('native credential input is ASCII JSON with Unicode paths preserved as data
  const encoded=vaultInput(value.verb,value.path,value.token);
  assert.match(encoded,/^[\x00-\x7f]*$/);assert.deepEqual(JSON.parse(encoded),value);
  assert.equal(encoded.endsWith('\n'),true);
+});
+
+test('vault paths accept short-name aliases and reject traversal, streams and devices',()=>{
+ for(const file of ['C:\\Users\\RUNNER~1\\private\\client.dpapi','C:\\Users\\नमस्ते\\client.dpapi'])assert.doesNotThrow(()=>validateVaultPath(file));
+ for(const file of ['relative','C:relative','\\\\server\\share\\file','C:\\safe\\..\\other','C:\\safe\\file:stream','C:\\safe\\CON','C:\\safe\\lpt1.txt','C:\\safe\\name.','C:\\safe\\name ','C:/safe/file'])assert.throws(()=>validateVaultPath(file),{code:'configuration_path'});
 });

@@ -17,8 +17,11 @@ try {
   $stage = 'parse_input'
   $r = ConvertFrom-Json -InputObject $json
   $stage = 'validate_path'
+  if ([string]$r.path -notmatch '^[A-Za-z]:\\') { throw 'absolute local path required' }
+  # GetFullPath expands valid 8.3 names (for example the Windows temp home).
+  # Validate the supplied path lexically in Node; enforce ACLs on this canonical target.
   $p = [IO.Path]::GetFullPath([string]$r.path)
-  if ($p -notmatch '^[A-Za-z]:\\' -or $p -ne [string]$r.path) { throw 'absolute local path required' }
+  if ($p -notmatch '^[A-Za-z]:\\') { throw 'local canonical path required' }
   $stage = 'identity'
   $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
   $system = [Security.Principal.SecurityIdentifier]::new('S-1-5-18')
@@ -92,9 +95,15 @@ export function vaultInput(verb:'store'|'read',file:string,token?:string):string
   return JSON.stringify({verb,path:file,...(token===undefined?{}:{token})})
     .replace(/[\u007f-\uffff]/g, char => `\\u${char.charCodeAt(0).toString(16).padStart(4,'0')}`) + '\n';
 }
+export function validateVaultPath(file:string):void {
+  const segments=file.slice(3).split('\\');
+  if(file.length>4096||!/^[A-Za-z]:\\/.test(file)||path.win32.normalize(file)!==file||segments.some(part=>
+    !part||/[<>:\"/|?*\x00-\x1f]/.test(part)||/[. ]$/.test(part)||/^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(part)))
+    throw new ClientError('configuration_path','Use a normalized absolute local Windows vault path without devices, streams or ambiguous segments.');
+}
 async function invoke(verb:'store'|'read',file:string,token?:string):Promise<string>{
   if(process.platform!=='win32')throw new ClientError('vault_platform','DPAPI credentials require Windows; use an owned private token file on POSIX.');
-  if(!/^[A-Za-z]:\\/.test(file)||path.win32.normalize(file)!==file)throw new ClientError('configuration_path','Use a normalized absolute local Windows vault path.');
+  validateVaultPath(file);
   const root=process.env.SystemRoot;
   if(!root||!/^[A-Za-z]:\\/.test(root))throw new ClientError('vault_unavailable','A trusted Windows SystemRoot is required.');
   const executable=path.win32.join(root,'System32','WindowsPowerShell','v1.0','powershell.exe');
