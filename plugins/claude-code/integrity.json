@@ -18,7 +18,7 @@
     "runtime/client/dist/index.d.ts": "cc22d3d21eeda178710f9f3509d45bc57019f0aad050be4d7e8ad66edcb53d35",
     "runtime/client/dist/index.js": "81f797d4c0639f40ecce502771dfb807156b9765231a267194a9bd97454b2df4",
     "runtime/control/THIRD_PARTY_NOTICES.txt": "d466a92f36e5a3b0d1e705377be47ea4bbdac1c676f199331af9e7701290869f",
-    "runtime/control/cli.mjs": "a0e181b8a11e7a3531c0adb82238a78a6821b004893ef5e5823008be64a173eb",
+    "runtime/control/cli.mjs": "55528558a809e8429358701fb20ffbf4a1f1fbe3955a605c436d5ab33d0d51ec",
     "runtime/control/components.json": "b11a271d2674a3784d9c23170e0394590a98a7311d2e70f227971011f509981a",
     "skills/connect/SKILL.md": "bdab45d7b2af3d634dfaa78ab93425037b482a7a1dbdcd3a69baec751ce52fe8",
     "skills/deploy/SKILL.md": "ac8096898a88dcccd33d871691221d78f027e558599ce8f23816fd92f1c0d563",
