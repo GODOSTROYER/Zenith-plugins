@@ -19,7 +19,7 @@ export async function inventory(root) {
   for (const file of await files(root)) {
     const relative = path.relative(root, file).split(path.sep).join('/');
     if (relative === 'integrity.json') continue;
-    if ((await lstat(file)).size > 1_048_576) throw new Error('A distributed file exceeds the 1 MiB package-file limit.');
+    if ((await lstat(file)).size > 8_388_608) throw new Error('A distributed file exceeds the 8 MiB package-file limit.');
     entries[relative] = sha256(await readFile(file));
   }
   return entries;

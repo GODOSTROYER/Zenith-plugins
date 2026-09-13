@@ -1,24 +1,15 @@
-# Implementation checkpoint — dev.2
+# Implementation checkpoint — 0.2.0-dev.1
 
-[Home](../README.md) · [Verification](verification.md) · [Release gates](roadmap.md)
+[Home](../README.md) · [Control contract](control-v2.md) · [Remaining scope](roadmap.md)
 
-Baseline inspected: `Zenith-plugins/main` at `13d1497b91aa990d1707ee3a1c164b49a327acfb`; Zenith `master` at `2d56ecc3abe77f560d9c58bee14370b0789f386a`. The latter merged the read-only companion previously described as unmerged. No backend code is changed by this increment.
+The original read-only foundation (plugin PR #2) is now merged to `main`. The v2 implementation was initially submitted as stacked PR #3, which was merged into the former foundation branch rather than `main`. **[PR #4](https://github.com/GODOSTROYER/Zenith-plugins/pull/4) is the integration PR targeting `main`.** It preserves v1 and delivers the opt-in maintained-SDK v2 path.
 
-The user-provided `Zenith-plugins-build-prompt.md` is the product target, not a claim that this increment completes its definition of done. Analysis found an existing dev.1 reader, 29 fixture tests, two skills and generated packages. It also found initialization races, permissive response validation, configuration reads bounded only after allocation and incomplete generated-file checks. This increment extends that implementation rather than replacing the architecture.
+The authoritative backend is implemented in [Zenith PR #6](https://github.com/GODOSTROYER/zenith/pull/6), merged at `5544ff6f78372879faf757ab20203e9b97d0463e`. Backend code owns durable proposals, trusted browser review, live authorization, actual actions and upload storage. Packages own setup, workflow knowledge, source preflight and transport. Neither plugin opens backend stores or approves its own work.
 
-| Prompt area | Status in this increment |
-| --- | --- |
-| Two-repository separation / standalone MCP / two native package layouts | Retained and strengthened; no backend internals in distribution |
-| Setup and actionable diagnostics | Implemented private POSIX profiles, explicit env fallback, scope/contract verification and opt-in redacted diagnostics |
-| Transport reliability | Implemented initialization state machine, cancellation/shutdown, immutable request/destination scope, deadlines and contract checks |
-| Shared workflows | Five generated skills: connect, inspect, plan, observe, export |
-| Reproducible bundles / local release preparation | Implemented full file inventories, hidden-file archive checks and deterministic local review artifacts; no publishing |
-| Real local Zenith / actual Codex and Claude behavior | Test command supplied, not executed against real Zenith/native binaries here |
-| Maintained MCP SDK / remote OAuth | Not implemented; limited stateless JSON profile remains explicit |
-| Editing, deploy, rollback, approval, persistent receipts/operations | Blocked on authoritative backend implementation and tests; no client bypass |
-| Hosted source publishing | Not implemented; requires backend grants/jobs and safe source transfer |
-| Native skill evaluation / provider/store parity / distributed guarantees | Not verified; fixtures are not substitutes |
+The implementation covers nine proposal kinds and 24 scoped tools: exact edits/import, deploy/rollback/promotion, app creation/publishing/code rollback, operation handoff, revision comparison, logs and incidents. Eleven shared skills and two read-oriented Claude reviewers are distributed with the same generated runtime.
 
-No subagent facility was available; both client tracks were implemented sequentially from shared sources. No independent-agent review is claimed. Registry access and native binaries were unavailable in the local environment. Clean installs succeeded in GitHub CI, which also exposed macOS symlinked-entrypoint and Windows stat-identity differences. Symlinked launch was fixed; Windows file configuration refuses unavailable identity rather than bypassing it. Environment-based connections remain supported.
+The integration hardening includes token-free remote OAuth bootstrap, Windows native input/Unicode and short-path handling, explicit security-descriptor checks, Windows CurrentUser DPAPI credentials, macOS Keychain credentials, and bounded non-secret diagnostics. The Keychain path accepts the secret only on stdin; profiles store only a service/account reference. The exact implementation and automated evidence are documented in [verification](verification.md); native client installation and real provider/identity-provider acceptance remain separate.
 
-Next: run the reader against isolated real Zenith data and actual client binaries; capture negotiated versions and authorization evidence. Then migrate the shared protocol through a maintained SDK without weakening bounds or contracts. Add backend durable preparation/approval/execution and restart-safe operations before any write tool. Remote OAuth and source publishing have independent release gates.
+Backend writes are deliberately limited to one long-lived POSIX process with the supported file store and private persistent journal. Remote OAuth uses a maintained external authorization provider and native-client lifecycle, not an in-house authorization server. Distributed coordination, notification/webhook delivery, aggregate service metrics, GitHub comment automation and Windows named-profile ACL storage remain honestly open in the roadmap. They are not mislabeled as installation tasks.
+
+Builds do not merge PRs, publish packages or expose infrastructure. Release signing is available only through the separately authorized review-artifact workflow and has not been invoked.

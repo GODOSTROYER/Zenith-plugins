@@ -40,6 +40,9 @@ jobs:
             package.json
             package-lock.json
             tsconfig.json
+            tsconfig.control.json
+            contracts/
+            CHANGELOG.md
             README.md
             AGENTS.md
             CLAUDE.md
@@ -50,4 +53,4 @@ jobs:
             .gitignore
             .github/workflows/verify.yml
       - name: Check reproducible package output
-        run: git diff --exit-code -- plugins packages/client/dist .agents .claude-plugin
+        run: git diff --exit-code -- plugins packages/client/dist packages/control/dist .agents .claude-plugin

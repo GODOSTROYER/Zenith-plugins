@@ -1,9 +1,9 @@
-# Development checkpoint
+# Control v2 checkpoint
 
-September 12, 2026 · `0.1.0-dev.2`. Plugins baseline `13d1497b91aa990d1707ee3a1c164b49a327acfb`; merged Zenith reader baseline `2d56ecc3abe77f560d9c58bee14370b0789f386a`.
+Version `0.2.0-dev.1`: shared SDK runtime, named profiles, Windows DPAPI credential adapter, explicit binary source preflight/upload, reviewed operations, eleven shared skills, two read-oriented Claude evidence reviewers, contract parity and manual attested artifacts.
 
-Implemented private POSIX connection setup, stronger scope/contract diagnostics, bounded configuration reads, initialization/cancellation/shutdown fixes, response validation, redacted transport diagnostics, three additional shared skills, recursive package integrity checks, local review archives and an opt-in live smoke command. Generated both packages from shared sources. No backend authority is duplicated.
+Backend companion [PR #6](https://github.com/GODOSTROYER/zenith/pull/6) is merged: authenticated grants, browser approval, persisted proposals/operations, curated edits/import/deploy/rollback/promotion, hosted-source publishing and scoped diagnostics. The backend owns all permissions and side effects.
 
-Local Linux tests: 96 passed, zero failed/skipped. Actual command evidence and remaining environment constraints are in [verification](docs/verification.md). Full product scope remains open: no writes, durable receipts/approvals, source publishing or remote OAuth; real Zenith and native agents remain unverified. No parallel subagents were available.
+[Plugin PR #4](https://github.com/GODOSTROYER/Zenith-plugins/pull/4) targets main and includes the feature implementation plus token-free remote OAuth setup and tested Windows credential fixes. The earlier stacked PR #3 was merged into the old foundation branch rather than main; no feature work was discarded. Generated packages have been synchronized and the temporary assembly workflow removed.
 
-Continue from [implementation status](docs/implementation-status.md) and [release gates](docs/roadmap.md). Do not merge, publish or deploy automatically.
+See [verification](docs/verification.md) for actual evidence and [remaining scope](docs/roadmap.md) for features that are intentionally still incomplete. Live/native installation remains separate. Do not merge, publish or expose a server automatically.
