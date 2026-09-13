@@ -3,16 +3,24 @@ import { isAbsolute } from 'node:path';
 import { controlClient, profileCommand } from './profiles.js';
 import { packageSource } from './source.js';
 import { storeVault } from './vault.js';
+import { storeKeychain } from './keychain.js';
 import { remoteConfiguration } from './remote.js';
 import { serveControl } from './server.js';
 import { ClientError, isObject } from '../client/dist/index.js';
 export async function main(args:string[]=process.argv.slice(2)):Promise<void>{
   const command=args.shift()??'stdio';
-  if(['--help','help'].includes(command)){console.log('Zenith v2: stdio | doctor | remote-config | credential-store | profile add/list/use/remove | source\nUse an explicit trusted connection profile or ZENITH_URL and scoped credentials. Writes require ZENITH_ALLOW_WRITES=1 or allowWrites:true.\nProfiles: profile add --file ABS --name NAME --url ORIGIN --workspace ID [--project ID] [--environment ID] [--token-file ABS | --token-env NAME] [--writes 1] [--loopback 1]\nSource: source --root ABS --include index.html --include zenith.app.json --include src [--output ABS] [--upload APP_ID --confirm-upload]\nBrowser approval is required for every operation; source upload is not publishing.');return;}
+  if(['--help','help'].includes(command)){console.log('Zenith v2: stdio | doctor | remote-config | credential-store | profile add/list/use/remove | source\nUse an explicit trusted connection profile or ZENITH_URL and scoped credentials. Writes require ZENITH_ALLOW_WRITES=1 or allowWrites:true.\nCredential storage: credential-store --file ABSOLUTE_WINDOWS_PATH OR credential-store --keychain-service SERVICE --keychain-account ACCOUNT; pipe the credential through stdin.\nProfiles: profile add --file ABS --name NAME --url ORIGIN --workspace ID [--project ID] [--environment ID] [--token-file ABS | --token-env NAME | --keychain-service SERVICE --keychain-account ACCOUNT] [--writes 1] [--loopback 1]\nSource: source --root ABS --include index.html --include zenith.app.json --include src [--output ABS] [--upload APP_ID --confirm-upload]\nBrowser approval is required for every operation; source upload is not publishing.');return;}
   if(command==='credential-store'){
-    if(args.length!==2||args[0]!=='--file'||process.stdin.isTTY)throw new ClientError('usage','Use credential-store --file ABSOLUTE_WINDOWS_PATH with the credential piped through stdin. Never paste it into an agent conversation.');
+    if(process.stdin.isTTY)throw new ClientError('usage','Pipe the credential through stdin; never pass or paste it as a command argument or agent message.');
+    const fields:Record<string,string>={};
+    for(let i=0;i<args.length;i+=2){const key=args[i],value=args[i+1];if(!key||!value||!['--file','--keychain-service','--keychain-account'].includes(key)||key in fields)throw new ClientError('usage','Use either --file ABSOLUTE_WINDOWS_PATH or --keychain-service SERVICE --keychain-account ACCOUNT.');fields[key]=value;}
+    const windows=Boolean(fields['--file']),mac=Boolean(fields['--keychain-service']||fields['--keychain-account']);
+    if((windows&&mac)||(!windows&&!mac)||mac&&(!fields['--keychain-service']||!fields['--keychain-account']))throw new ClientError('usage','Choose exactly one platform credential destination: Windows --file, or macOS --keychain-service plus --keychain-account.');
     const parts:Buffer[]=[];let bytes=0;for await(const chunk of process.stdin){const b=Buffer.from(chunk);bytes+=b.length;if(bytes>16386)throw new ClientError('invalid_credential','Credential stdin exceeds its size limit.');parts.push(b);}
-    const token=Buffer.concat(parts).toString('utf8').trim();for(const b of parts)b.fill(0);await storeVault(args[1]!,token);console.log(JSON.stringify({stored:true,mechanism:'Windows CurrentUser DPAPI',credentialRevoked:false}));return;
+    const joined=Buffer.concat(parts),token=joined.toString('utf8').trim();joined.fill(0);for(const b of parts)b.fill(0);
+    if(windows){await storeVault(fields['--file']!,token);console.log(JSON.stringify({stored:true,mechanism:'Windows CurrentUser DPAPI',credentialRevoked:false}));}
+    else{await storeKeychain(fields['--keychain-service']!,fields['--keychain-account']!,token);console.log(JSON.stringify({stored:true,mechanism:'macOS Keychain',credentialRevoked:false}));}
+    return;
   }
   if(command==='profile'){console.log(JSON.stringify(await profileCommand(args),null,2));return;}
   if(command==='source'){
@@ -33,5 +41,5 @@ export async function main(args:string[]=process.argv.slice(2)):Promise<void>{
     if(context.isError||!isObject(data)||!isObject(data.selected)||['workspaceId','projectId','environmentId'].some(k=>data.selected&&isObject(data.selected)&&data.selected[k]!==client.scope[k as keyof typeof client.scope]))throw new ClientError('scope_mismatch','The backend did not verify the exact selected scope.');
     console.log(JSON.stringify({ok:true,contractVersion:2,selected:client.scope,allowWrites:client.allowWrites,tools:tools.map(t=>t.name),evidence:'Authenticated tools and scope only; no deployment or provider-health verification.'},null,2));return;
   }
-  throw new ClientError('usage','Control commands: stdio, doctor, profile, source, remote-config. Set ZENITH_API_VERSION=2 explicitly.');
+  throw new ClientError('usage','Control commands: stdio, doctor, profile, source, remote-config, credential-store. Set ZENITH_API_VERSION=2 explicitly.');
 }
