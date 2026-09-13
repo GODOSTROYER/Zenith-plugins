@@ -9,7 +9,7 @@
 - [x] Curated edits, manifest/Compose import, deploy, rollback and saved-revision promotion.
 - [x] App creation, digest-bound binary source upload, supported publishing and code rollback.
 - [x] Remote OAuth resource verification, live integration grants/revocation, native remote configuration and provider-owned OAuth flow.
-- [x] Named POSIX connection profiles and a Windows CurrentUser DPAPI credential source with private ACL checks.
+- [x] Named POSIX connection profiles, Windows CurrentUser DPAPI credential storage with private ACL checks, and macOS Keychain credential storage using stdin-only secret input.
 - [x] Scoped logs, revision comparison, incident bundles, source commit/PR provenance, eleven skills and two Claude evidence reviewers.
 - [x] Versioned contract snapshot/parity checks, strict v2 runtime/client types, runtime dependency notices and reproducible packages.
 - [x] Manually authorized review-artifact signing/SBOM workflow and documented release/compatibility process.
@@ -17,10 +17,10 @@
 ## Still not implemented; not disguised as testing
 
 - [ ] Coordinated PostgreSQL write journal/application transactions and multi-process execution. Current write topology intentionally refuses them.
-- [ ] Distributed quotas/rate limiting, durable notification/webhook outbox and aggregate service metrics/alert delivery.
+- [ ] Distributed quotas/rate limiting, durable notification/webhook outbox and aggregate service metrics/alert delivery. The companion backend can persist limits for its supported single-host topology, but that is not distributed coordination.
 - [ ] GitHub PR plan-comment/check automation. Source provenance is recorded, but no GitHub access is requested and no comment bot exists.
 - [ ] A bundled OAuth authorization service or bridge-managed browser-login/refresh workflow. Use your maintained provider/native client's OAuth flow; the resource server is implemented.
-- [ ] Private named-profile ACL storage on Windows (DPAPI credential storage is separate and implemented); macOS keychain integration.
+- [ ] Private named-profile ACL storage on Windows. Windows DPAPI credential storage is separate and implemented.
 - [ ] Full strict type coverage of the retained legacy v1 JavaScript files. The new v2 client/runtime are strictly checked.
 - [ ] Public directory submission, release publication and a chosen project license; these require owner decisions/authorization.
 
