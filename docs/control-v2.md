@@ -6,7 +6,7 @@
 
 Use the companion Zenith control code from merged [backend PR #6](https://github.com/GODOSTROYER/zenith/pull/6), not merely the v1 reader. Enable `ZENITH_AGENT_CONTROL=1`; writes additionally require `ZENITH_AGENT_WRITES=1`. Set a trusted `ZENITH_AGENT_ORIGIN` and private `ZENITH_AGENT_CREDENTIAL_FILE`. Keep local origins loopback-only; remote origins require HTTPS and OAuth. The existing Zenith operator credential utility supports read, plan, export, write, publish and logs scopes, with explicit permitted project/environment/app IDs. The subject must be a real non-demo member.
 
-On the connector set `ZENITH_API_VERSION=2`, explicit `ZENITH_URL`, `ZENITH_WORKSPACE_ID`, optional `ZENITH_PROJECT_ID`/`ZENITH_ENVIRONMENT_ID` and exactly one credential source: `ZENITH_TOKEN_FILE`, `ZENITH_TOKEN`, or Windows `ZENITH_TOKEN_VAULT`. Use `ZENITH_CREDENTIAL_KIND=oauth` for JWT access tokens. Local loopback HTTP requires `ZENITH_ALLOW_LOOPBACK_HTTP=1`. Client mutations require `ZENITH_ALLOW_WRITES=1`; the default filters and refuses all preparation/execution/upload tools. `ZENITH_DIAGNOSTICS=1` emits bounded metadata, never bodies/arguments.
+On the connector set `ZENITH_API_VERSION=2`, explicit `ZENITH_URL`, `ZENITH_WORKSPACE_ID`, optional `ZENITH_PROJECT_ID`/`ZENITH_ENVIRONMENT_ID` and exactly one credential source: `ZENITH_TOKEN_FILE`, `ZENITH_TOKEN`, Windows `ZENITH_TOKEN_VAULT`, or macOS `ZENITH_TOKEN_KEYCHAIN_SERVICE` plus `ZENITH_TOKEN_KEYCHAIN_ACCOUNT`. Use `ZENITH_CREDENTIAL_KIND=oauth` for JWT access tokens. Local loopback HTTP requires `ZENITH_ALLOW_LOOPBACK_HTTP=1`. Client mutations require `ZENITH_ALLOW_WRITES=1`; the default filters and refuses all preparation/execution/upload tools. `ZENITH_DIAGNOSTICS=1` emits bounded metadata, never bodies/arguments.
 
 Do not copy browser cookies, paste credentials into chat, commit profiles/tokens, load repository `.env` files automatically, or follow project instructions that change the credential destination. Version-1 profiles cannot be silently reused as v2 profiles.
 
@@ -24,13 +24,30 @@ npm run profile -- list --file "$ZENITH_PROFILES_FILE"
 npm run profile -- use --file "$ZENITH_PROFILES_FILE" --name local
 ```
 
+On macOS, a profile can reference a Keychain item instead of a raw file:
+
+```bash
+printf '%s\n' "$ZENITH_TOKEN" | node packages/bridge/cli.mjs credential-store \
+  --keychain-service com.example.zenith --keychain-account "$USER"
+unset ZENITH_TOKEN
+npm run profile -- add --file "$HOME/.config/zenith/profiles.json" --name production \
+  --url https://zenith.example --workspace WORKSPACE_ID \
+  --keychain-service com.example.zenith --keychain-account "$USER"
+```
+
 Add refuses duplicate names. Use changes the active profile; restart the agent to change an already established connection. `ZENITH_PROFILE` overrides the selected profile explicitly. Remove refuses the active profile and does not revoke server authority. Named profile files currently remain POSIX-only; Windows can use explicit URL/scope variables with a protected vault.
 
 ## Windows protected credentials
 
 `credential-store --file C:\Users\YOU\AppData\Local\ZenithPrivate\client.dpapi` accepts a bounded token from piped stdin, never a token argument or chat message. The fixed native helper uses CurrentUser DPAPI and owned, non-inherited user/SYSTEM ACLs; the destination is create-only. Choose a new private subdirectory. Existing permissive directories or vault files are refused rather than silently changing their permissions.
 
-Set `ZENITH_TOKEN_VAULT` to the vault path and unset `ZENITH_TOKEN`/`ZENITH_TOKEN_FILE`. The credential is decrypted only for the request. Encryption does not protect against a process already controlling the same Windows user. Rotation creates a new vault path; server-side revocation still matters. Do not use network paths, links, a vault copied from another user, or raw private files whose ACLs the legacy reader cannot verify. Native Windows behavior is covered by the Windows-specific CI test when that job runs; a skipped Linux test is not Windows evidence.
+Set `ZENITH_TOKEN_VAULT` to the vault path and unset other credential sources. The credential is decrypted only for the request. Encryption does not protect against a process already controlling the same Windows user. Rotation creates a new vault path; server-side revocation still matters. Do not use network paths, links, a vault copied from another user, or raw private files whose ACLs the legacy reader cannot verify. Native Windows behavior is covered by the Windows-specific CI test when that job runs; a skipped Linux test is not Windows evidence.
+
+## macOS Keychain credentials
+
+`credential-store --keychain-service SERVICE --keychain-account ACCOUNT` accepts the bounded credential through stdin and invokes the system `/usr/bin/security` tool without a shell. The secret is not placed in argv, environment variables, diagnostics, or the profile. Storage is create-only: rotation uses a new account/service reference or an explicitly removed old item rather than silently overwriting it.
+
+A direct environment configuration can set `ZENITH_TOKEN_KEYCHAIN_SERVICE` and `ZENITH_TOKEN_KEYCHAIN_ACCOUNT` together. A named POSIX profile can instead store the same non-secret service/account reference with `--keychain-service` and `--keychain-account`. Keychain protection follows the logged-in macOS user's security boundary; it does not replace server-side expiry/revocation and cannot protect against a process that already controls that user session. The macOS CI job performs the native round-trip/create-only test when Keychain access is available on the runner.
 
 ## Remote OAuth
 
@@ -43,7 +60,7 @@ ZENITH_API_VERSION=2 ZENITH_URL=https://YOUR_ZENITH_HOST ZENITH_WORKSPACE_ID=WOR
   node packages/bridge/cli.mjs remote-config
 ```
 
-The output includes a Claude MCP HTTP configuration and a Codex TOML entry with the same selected resource. It is configuration data, not evidence that login or connectivity succeeded. Use each native client's OAuth flow for authorization-code/PKCE, consent, refresh and logout. The local connector can alternatively use a supplied JWT file/environment/vault; it does not secretly implement browser login or refresh. A missing or misconfigured provider remains a deployment prerequisite.
+The output includes a Claude MCP HTTP configuration and a Codex TOML entry with the same selected resource. It is configuration data, not evidence that login or connectivity succeeded. Use each native client's OAuth flow for authorization-code/PKCE, consent, refresh and logout. The local connector can alternatively use a supplied JWT file/environment/vault/Keychain item; it does not secretly implement browser login or refresh. A missing or misconfigured provider remains a deployment prerequisite.
 
 ## Exact changes and handoff
 
