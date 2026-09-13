@@ -17,7 +17,7 @@
 ## Still not implemented; not disguised as testing
 
 - [ ] Coordinated PostgreSQL write journal/application transactions and multi-process execution. Current write topology intentionally refuses them.
-- [ ] Distributed quotas/rate limiting, durable notification/webhook outbox and aggregate service metrics/alert delivery. The companion backend can persist limits for its supported single-host topology, but that is not distributed coordination.
+- [ ] Distributed quotas/rate limiting, durable notification/webhook outbox and aggregate service metrics/alert delivery.
 - [ ] GitHub PR plan-comment/check automation. Source provenance is recorded, but no GitHub access is requested and no comment bot exists.
 - [ ] A bundled OAuth authorization service or bridge-managed browser-login/refresh workflow. Use your maintained provider/native client's OAuth flow; the resource server is implemented.
 - [ ] Private named-profile ACL storage on Windows. Windows DPAPI credential storage is separate and implemented.
