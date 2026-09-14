@@ -10,7 +10,7 @@ import { readBoundedFile, readCredential } from '../bridge/config.mjs';
 import { ClientError, association, endpoint } from '../client/dist/index.js';
 import { ControlClient, type ControlOptions } from '../client/control.js';
 const name=z.string().regex(/^[A-Za-z0-9_-]{1,40}$/).refine(v=>!['__proto__','constructor','prototype'].includes(v));
-const keychainIdentifier=z.string().min(1).max(200).refine(v=>!/[\0\r\n]/.test(v));
+const keychainIdentifier=z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,199}$/);
 const scope=z.object({version:z.literal(1),workspaceId:z.string(),projectId:z.string().optional(),environmentId:z.string().optional()}).strict();
 const definition=z.object({origin:z.string(),scope,allowLoopbackHttp:z.boolean().default(false),allowWrites:z.boolean().default(false),
   credentialKind:z.enum(['opaque','oauth']).default('opaque'),credential:z.discriminatedUnion('kind',[
