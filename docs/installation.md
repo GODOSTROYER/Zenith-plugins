@@ -18,7 +18,7 @@ npm ci --ignore-scripts
 npm run verify
 ```
 
-Generated plugin directories are committed. Installing those directories does not require the compiler or a runtime dependency installation.
+Generated plugin directories are committed. Installing those directories does not require the compiler or a runtime dependency installation. Production activation also requires the trusted `zenith-plugin-launcher` from `packages/launcher/cli.mjs` and its verifier to be installed outside the plugin directory; the launcher must be on PATH with the two absolute provenance environment variables set.
 
 ## 1. Issue authority in the Zenith checkout
 
@@ -88,7 +88,7 @@ The package uses `${CLAUDE_PLUGIN_ROOT}` and a `mcpServers` configuration wrappe
 
 ### Codex
 
-The repository marketplace `.agents/plugins/marketplace.json` selects `plugins/codex`. Use the installed CLI's `/plugins` marketplace flow against the checkout. The package uses an unwrapped MCP server map and `${PLUGIN_ROOT}`. Validate interpolation, environment inheritance and skills/tools in your exact CLI version; neither a layout check nor a copied Node subprocess establishes native compatibility. Direct MCP configuration remains independent of plugin installation.
+The repository marketplace `.agents/plugins/marketplace.json` selects `plugins/codex`. Use the installed CLI's `/plugins` marketplace flow against the checkout. The package uses an unwrapped MCP server map and `${PLUGIN_ROOT}`, invoking the external `zenith-plugin-launcher`. Validate launcher discovery, interpolation, environment inheritance and skills/tools in your exact CLI version; neither a layout check nor a copied Node subprocess establishes native compatibility. Direct MCP configuration remains independent of plugin installation, but production direct invocation must still use the trusted launcher.
 
 ## Upgrade, artifacts and uninstall
 

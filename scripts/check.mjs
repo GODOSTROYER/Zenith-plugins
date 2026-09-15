@@ -16,9 +16,10 @@ for (const client of ['codex', 'claude-code']) {
   assert.equal(manifest.skills, './skills/'); assert.equal(manifest.mcpServers, './.mcp.json');
   const config = await readJson(path.join(base, '.mcp.json'));
   const server = (client === 'codex' ? config : config.mcpServers).zenith;
-  assert.deepEqual(Object.keys(server).sort(), ['args', 'command']); assert.equal(server.command, 'node');
-  assert.deepEqual(server.args, [`${client === 'codex' ? '${PLUGIN_ROOT}' : '${CLAUDE_PLUGIN_ROOT}'}/runtime/bridge/cli.mjs`, 'stdio']);
-  const entry = server.args[0].replace('${PLUGIN_ROOT}', base).replace('${CLAUDE_PLUGIN_ROOT}', base);
+  assert.deepEqual(Object.keys(server).sort(), ['args', 'command']); assert.equal(server.command, 'zenith-plugin-launcher');
+  const packageVariable = client === 'codex' ? '${PLUGIN_ROOT}' : '${CLAUDE_PLUGIN_ROOT}';
+  assert.deepEqual(server.args, ['--package-dir', packageVariable, '--entry', 'runtime/bridge/cli.mjs', 'stdio']);
+  const entry = path.join(base, server.args[3]);
   assert.ok(isInside(base, entry)); assert.ok((await stat(entry)).isFile());
   for (const [source, destination] of [['packages/client/dist', 'runtime/client/dist'], ['packages/bridge', 'runtime/bridge'], ['packages/provenance', 'runtime/provenance'], ['shared/skills', 'skills'], ['packages/control/dist','runtime/control']]) {
     assert.deepEqual(await inventory(path.join(base, destination)), await inventory(path.join(root, source)), `Stale ${client} ${destination}`);

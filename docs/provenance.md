@@ -56,11 +56,12 @@ Verification requires the explicit version-1 allowlist, authenticates the signed
 
 ## Runtime activation gate
 
-The self-contained bridge repeats the package check immediately before opening
-its MCP/control surface. The generated plugin runtime is copied below its
-package's `runtime/provenance/` boundary and requires the gate there;
-`ZENITH_REQUIRE_PROVENANCE=0` cannot disable it. A source checkout lives below
-`packages/provenance/` and remains usable for development without an envelope.
+The generated plugin MCP configuration invokes `zenith-plugin-launcher`, which
+must be installed outside the plugin directory. The launcher uses the
+repository's `packages/launcher/cli.mjs` together with its sibling
+`packages/provenance/index.mjs` verifier, and verifies the entire package before
+importing any package-owned runtime module. This prevents a modified package
+from replacing the provenance checker that protects its own activation.
 
 The trusted installer or launcher must provide:
 
@@ -72,15 +73,15 @@ export ZENITH_PROVENANCE_TRUST=/absolute/path/trusted-keys.json
 
 Both paths must be absolute and are never read from package content. A missing,
 invalid, untrusted, expired, tampered or mismatched package exits before any
-connection or tool is opened. The generated plugin includes the gate
-implementation under `runtime/provenance/` and the bridge calls it on every
-startup.
+connection or tool is opened. Direct invocation of
+`runtime/bridge/cli.mjs` is development-only; `ZENITH_REQUIRE_PROVENANCE=0`
+cannot disable the external activation gate.
 
 The checked-in Codex and Claude marketplace descriptors contain only source,
 manifest and presentation metadata; this repository has no installer callback,
 activation hook, or field for injecting operator trust paths. Therefore the
 archive verification step before extraction/registration remains an explicit
-trusted-installer responsibility, and the runtime gate is the repository-native
+trusted-installer responsibility, and the external launcher is the repository's
 activation enforcement. No marketplace-specific speculative wiring is added.
 
 The signed envelope covers its algorithm, key ID, signing time, expiry, and manifest. Key rotation requires distributing the new public key through the operator's trusted configuration channel. Mark an old key `revoked` after migration; a valid old signature is then rejected. No trust key is embedded in this repository, and the repository does not silently alter Codex/Claude marketplace behavior or publish artifacts.
