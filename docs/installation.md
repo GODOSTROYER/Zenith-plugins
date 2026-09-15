@@ -4,33 +4,38 @@
 
 Two install shapes exist and they have different trust properties. Read this paragraph before choosing.
 
-- **Source install (§1)** is the supported public path for phase 1. You clone this repository and run the connector from the checkout. Its trust root is *"you cloned the repository you meant to clone"* — the same trust root any `npx`-less GitHub install has. No manifest and no launcher are needed, because `enforceInstalledProvenance()` computes `isInstalledRuntime` from the module's own location and a checkout's copy does not sit under `<package>/runtime/provenance`.
-- **Signed release with the trusted launcher (§2)** is optional for a development install and **required** for the generated packages under `plugins/`, whose runtime does sit under `runtime/`, so their activation gate is always on — `ZENITH_REQUIRE_PROVENANCE=0` cannot disable it. That path is not one click today: install the launcher, fetch the package envelope, set two absolute paths, then use. That is the cost of a gate that cannot be turned off on a package which can dispatch deployments, and it is the right default.
+- **Marketplace install (§1)** is the supported path for phase 1: two commands in your agent, then ask the agent to link your Zenith account. The generated packages are built as **unsigned previews** — they declare `"mode": "unsigned-preview"` in `provenance-mode.json`, their `.mcp.json` runs the packaged bridge directly with `node`, and the runtime gate accepts that declaration so nothing has to be configured by hand. In exchange, `login`, `status` and `doctor` all say the build is not publisher-verified. A marketplace fetch proves that your client downloaded this repository's package; it does not prove who produced the bytes. [Provenance](provenance.md#unsigned-preview) states exactly what that does and does not guarantee.
+- **Signed release with the trusted launcher (§2)** is the production-grade install and is unchanged. The packages are rebuilt with `npm run build -- --signed`, which writes the descriptor that invokes `zenith-plugin-launcher` and the `signed-release` marker; the operator installs the launcher, fetches the package envelope and sets two absolute paths. The gate then verifies every byte against an Ed25519 signature before Node imports anything from the package, and `ZENITH_REQUIRE_PROVENANCE=0` cannot disable it.
 
-Do not weaken either. If you want the gate on a source install too, set `ZENITH_REQUIRE_PROVENANCE=1`.
+The two are not a spectrum: setting `ZENITH_PROVENANCE_MANIFEST`, `ZENITH_PROVENANCE_TRUST` or `ZENITH_REQUIRE_PROVENANCE=1` on a preview package makes the preview marker irrelevant and the package is verified like a release — and fails closed without one. A source checkout (`git clone` + `npm ci`) needs neither, because `enforceInstalledProvenance()` computes `isInstalledRuntime` from the module's own location and a checkout's copy does not sit under `<package>/runtime/provenance`.
 
 ## Prerequisites
 
-Node 22.16 or later, a real non-demo Zenith workspace member, and a Zenith instance with the v2 control backend enabled. Phase 1 deployments are simulated by the `sandbox` provider; LocalStack and AWS are not enabled.
+Node 22.16 or later, a Zenith account at [tryzenith.cloud](https://tryzenith.cloud) that is a real non-demo workspace member, and a Zenith instance with the v2 control backend enabled. Phase 1 deployments are simulated by the `sandbox` provider; LocalStack and AWS are not enabled.
 
-## 1. Source install and browser link — phase 1
+## 1. Marketplace install and browser link — phase 1
 
-```bash
-git clone https://github.com/GODOSTROYER/Zenith-plugins.git
-cd Zenith-plugins && npm ci --ignore-scripts
-```
-
-> The repository is private today. A public one-line install needs the repository to be public, or a reader token on the clone; that visibility decision belongs to the operator, not to this document.
-
-Link the connector to a Zenith account. The command prints a URL and a code, opens a browser when it can, and waits:
-
-```bash
-ZENITH_API_VERSION=2 node packages/bridge/cli.mjs login
-# or, for a different instance:
-ZENITH_API_VERSION=2 node packages/bridge/cli.mjs login --url https://your-zenith-host
-```
+**Claude Code** — two commands:
 
 ```
+/plugin marketplace add GODOSTROYER/Zenith-plugins
+/plugin install zenith@zenith
+```
+
+**Codex** — the same marketplace, from `.agents/plugins/marketplace.json`:
+
+```
+/plugins
+# add the marketplace GODOSTROYER/Zenith-plugins (or a local checkout path), then install zenith
+```
+
+> The repository is private today, so both commands need the repository to be public or the client to be authenticated to it. Making it public is the owner's decision, not this document's.
+
+Then **ask the agent to link your Zenith account** — "link my Zenith account", or run the `link` skill. The agent runs the connector's `login`, which prints a URL and a code and waits:
+
+```
+Zenith connector: unsigned preview build — not publisher-verified. …
+
 Zenith link
 
   1. Open   https://tryzenith.cloud/agent/link?code=K7QM-3XRB
@@ -40,7 +45,17 @@ Zenith link
 Waiting for approval (expires in 10 minutes). Press Ctrl-C to stop.
 ```
 
-Sign in, confirm the code matches the one in the terminal, choose the workspace, the projects and the scopes, and approve. The connector stores the issued credential and prints what was granted. The credential is never printed, and the device code never leaves the process.
+The agent shows you the URL and the code; you open it, check the code matches, sign in and approve. Restart the plugin's MCP server afterwards (the server reads the credential at start-up) — in Claude Code, `/mcp` reconnect or a restart.
+
+You can also run the same command yourself, from the installed package directory or a checkout:
+
+```bash
+node runtime/bridge/cli.mjs login                              # installed package
+ZENITH_API_VERSION=2 node packages/bridge/cli.mjs login        # source checkout
+ZENITH_API_VERSION=2 node packages/bridge/cli.mjs login --url https://your-zenith-host
+```
+
+The connector stores the issued credential and prints what was granted. The credential is never printed, and the device code never leaves the process — never type either into the conversation.
 
 `login` defaults to `https://tryzenith.cloud`; `--url`, then `ZENITH_URL`, override it. Writes are enabled locally when — and only when — the browser granted `write` or `publish`; there is no second local flag to set. Approving a link deploys nothing: every change the agent proposes later is reviewed again in the browser before it runs.
 
@@ -54,19 +69,27 @@ Where the credential goes, by platform:
 
 Named profile files are POSIX-only in this build, because the private-file ACL validation a Windows profile would need does not exist yet. On Windows `login` prints the exact environment block to set instead, and `--json` emits the same data for a wrapper to consume. Vault paths are create-only: a second `login` for the same name refuses rather than replacing a credential.
 
-Then check and use it:
+On POSIX the connector then finds that profile on its own: with no explicit connection variable set, it reads `$XDG_CONFIG_HOME/zenith/profiles.json`, or `~/.config/zenith/profiles.json`, which is the file `login` just wrote. That is what lets a marketplace-installed server, started by the host from a committed descriptor, use a credential no descriptor could name. An explicit `ZENITH_PROFILES_FILE` always wins, and any explicit connection variable (`ZENITH_URL`, `ZENITH_TOKEN_FILE`, …) turns the default lookup off entirely. On Windows there is no default: use the environment block `login` printed.
+
+Then check it:
 
 ```bash
-export ZENITH_API_VERSION=2
-export ZENITH_PROFILES_FILE="$HOME/.config/zenith/profiles.json"   # POSIX; Windows uses the printed block
-node packages/bridge/cli.mjs status
+node runtime/bridge/cli.mjs status                      # installed package
+ZENITH_API_VERSION=2 node packages/bridge/cli.mjs status  # source checkout
 ```
 
-`status` reports the origin, the profile, the linked account label, the granted scopes, the expiry and the backend's capability report. It verifies authentication and scope, not provider health and not a deployment. `logout` removes the local credential and nothing else — revoke at `ORIGIN/integrations` → **Linked agents**.
+`status` reports the activation mode, the origin, the profile, the linked account label, the granted scopes, the expiry and the backend's capability report. It verifies authentication and scope, not provider health and not a deployment. `logout` removes the local credential and nothing else — revoke at `ORIGIN/integrations` → **Linked agents**.
 
-### Register it with a client
+### Other ways to register the connector
 
-Standalone MCP, or any client that takes a command:
+A local checkout with Claude Code, without the marketplace:
+
+```bash
+claude --plugin-dir /absolute/path/to/Zenith-plugins/plugins/claude-code
+claude plugin validate /absolute/path/to/Zenith-plugins/plugins/claude-code --strict
+```
+
+Any MCP client that takes a command:
 
 ```json
 {
@@ -76,35 +99,22 @@ Standalone MCP, or any client that takes a command:
 }
 ```
 
-Claude Code, from the checkout:
-
-```bash
-claude --plugin-dir /absolute/path/to/Zenith-plugins/plugins/claude-code
-claude plugin validate /absolute/path/to/Zenith-plugins/plugins/claude-code --strict
-```
-
-Or through the repository marketplace:
-
-```bash
-/plugin marketplace add GODOSTROYER/Zenith-plugins
-/plugin install zenith@zenith
-```
-
-Codex: the repository marketplace `.agents/plugins/marketplace.json` selects `plugins/codex` with `policy.authentication: "ON_INSTALL"`, which is what should trigger `zenith login`. Use the installed CLI's `/plugins` marketplace flow against the checkout:
-
-```bash
-codex
-/plugins
-# add the local marketplace at /absolute/path/to/Zenith-plugins, then install zenith
-```
-
-Both generated packages invoke `zenith-plugin-launcher`, so installing them from the marketplace also requires §2. Validate launcher discovery, `${PLUGIN_ROOT}` / `${CLAUDE_PLUGIN_ROOT}` interpolation, environment inheritance and the skill list in your exact CLI version; neither a layout check nor a copied Node subprocess establishes native compatibility. These are documented commands, **not commands executed in this build environment**.
+The generated packages' own descriptor is the preview form — `node ${CLAUDE_PLUGIN_ROOT}/runtime/bridge/cli.mjs stdio` (`${PLUGIN_ROOT}` for Codex) with `ZENITH_API_VERSION=2`. The Codex marketplace entry keeps `policy.authentication: "ON_INSTALL"`, which is what should trigger the link. Validate `${PLUGIN_ROOT}` / `${CLAUDE_PLUGIN_ROOT}` interpolation, environment inheritance and the skill list in your exact CLI version; neither a layout check nor a copied Node subprocess establishes native compatibility. These are documented commands, **not commands executed in this build environment**.
 
 The agent process must inherit the configuration. An unrelated desktop process may not inherit a terminal's environment; restart the client after changing it.
 
-## 2. Signed release and the trusted launcher
+## 2. Signed release and the trusted launcher — the production-grade install
 
-Required for the generated packages, optional for a source install. Complete the fail-closed [publisher provenance gate](provenance.md) before extracting or registering either package. The committed development packages carry hash inventories only, which are not a publisher signature.
+The production path, unchanged by the phase-1 preview. Complete the fail-closed [publisher provenance gate](provenance.md) before extracting or registering either package. The committed development packages carry hash inventories only, which are not a publisher signature.
+
+A signed release is built in the release shape first, so the descriptor the launcher binds to names the launcher:
+
+```bash
+npm run build:signed     # .mcp.json invokes zenith-plugin-launcher; provenance-mode.json says signed-release
+npm run build            # restores the committed unsigned-preview shape afterwards
+```
+
+`npm run release:sign -- --key-id … --private-key … --trust …` runs the verify lane, then `build:signed`, then signs, so operators do not have to remember the order. Run `npm run build` when you are done to leave the checkout in its committed shape.
 
 The launcher is this repository's only `bin`, so install it from a verified checkout or archive, outside the plugin directory:
 
@@ -120,7 +130,7 @@ export ZENITH_PROVENANCE_MANIFEST=/absolute/path/zenith-codex-VERSION.package-ma
 export ZENITH_PROVENANCE_TRUST=/absolute/path/trusted-keys.json
 ```
 
-A release manifest is refused here with `subject_mismatch`. Inside an installed package, `node runtime/bridge/cli.mjs --help` and `--version` still run with no provenance inputs; `login`, `logout`, `status`, `doctor`, `stdio`, `setup` and the rest of the v2 control commands exit 1 with `provenance_required` until both variables are set. Run them through the launcher:
+A release manifest is refused here with `subject_mismatch`. In a signed-release package — and in any package with no activation marker at all — `node runtime/bridge/cli.mjs --help` and `--version` still run with no provenance inputs, while `login`, `logout`, `status`, `doctor`, `stdio`, `setup` and the rest of the v2 control commands exit 1 with `provenance_required` until both variables are set. Run them through the launcher:
 
 ```bash
 zenith-plugin-launcher --package-dir /absolute/path/to/package --entry runtime/bridge/cli.mjs login
@@ -176,7 +186,7 @@ Unset old individual connection variables first. Setup refuses existing destinat
 
 ## Upgrade and uninstall
 
-**Breaking change when upgrading from a pre-provenance package.** The generated `.mcp.json` invokes `zenith-plugin-launcher` instead of `node`. An existing registration keeps pointing at `node` and must be replaced; a new one fails with the MCP client's "command not found" until the launcher is installed as described in §2.
+**The generated `.mcp.json` changed twice.** It moved from `node` to `zenith-plugin-launcher` when the provenance gate landed, and back to `node` for the phase-1 unsigned preview. A registration written by an older install keeps whichever command it captured: if a server fails to start with the client's "command not found", it is still pointing at `zenith-plugin-launcher`. Reinstall the plugin, or install the launcher as described in §2 and use the signed release.
 
 Pin compatible server/client revisions and review changes. Rebuild using the lockfile and replace the entire generated package, not individual runtime files. Restart/reload the agent according to its client behavior.
 

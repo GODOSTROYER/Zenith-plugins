@@ -10,8 +10,9 @@
  * snapshot and backend parity check are unaffected.
  */
 import { ClientError, isObject } from '../client/dist/index.js';
-import { controlClient } from './profiles.js';
+import { controlClient, resolveProfilesFile } from './profiles.js';
 import { selectedProfile } from './login.js';
+import { PREVIEW_NOTICE, isPreview, type Activation } from './activation.js';
 import type { ControlClient } from '../client/control.js';
 
 export interface StatusIo {
@@ -19,6 +20,8 @@ export interface StatusIo {
   out?: (line: string) => void;
   client?: ControlClient;
   now?: () => number;
+  /** Reported by the provenance gate in packages/bridge/cli.mjs; never inferred here. */
+  activation?: Activation;
 }
 const SCOPE_KEYS = ['workspaceId', 'projectId', 'environmentId'] as const;
 
@@ -91,15 +94,19 @@ export async function statusCommand(args: string[], io: StatusIo = {}): Promise<
     if (arg === '--json') { json = true; continue; }
     throw new ClientError('usage', 'status accepts only --json.');
   }
-  if (!env.ZENITH_PROFILES_FILE && !env.ZENITH_URL) {
+  const preview = isPreview(io.activation);
+  const activation: Record<string, unknown> = io.activation === undefined
+    ? {} : { activation: io.activation, ...(preview ? { verification: PREVIEW_NOTICE } : {}) };
+  if (!env.ZENITH_URL && !(await resolveProfilesFile(env))) {
     // Not configured is a state, not a failure.
-    if (json) out(JSON.stringify({ ok: true, linked: false, next: 'Run `zenith login`.' }, null, 2));
-    else out('Not linked. Run `zenith login`.');
+    if (json) out(JSON.stringify({ ok: true, linked: false, ...activation, next: 'Run `zenith login`.' }, null, 2));
+    else { if (preview) out(`Build       ${PREVIEW_NOTICE}`); out('Not linked. Run `zenith login`.'); }
     return;
   }
-  const report = await status(io.client ?? await controlClient(env), env, io.now?.() ?? Date.now());
+  const report: Record<string, unknown> = { ...await status(io.client ?? await controlClient(env), env, io.now?.() ?? Date.now()), ...activation };
   if (json) { out(JSON.stringify(report, null, 2)); }
   else {
+    if (preview) out(`Build       ${PREVIEW_NOTICE}`);
     const profile = report.profile as { name: string | null; credentialSource: string; allowWrites: boolean };
     const credential = report.credential as { id: string | null; label: string | null; scopes: string[] | null; expiresAt: string | null; expiresInDays: number | null };
     out(`Origin      ${report.origin}`);

@@ -12,6 +12,45 @@ It proves that the bytes on disk in an installed package match a manifest signed
 
 It does **not** prove how the package was registered. An MCP client reads its own server configuration before any code in this repository runs. If that configuration does not name `zenith-plugin-launcher`, nothing here is reached. **The host's MCP configuration is the trust root.** A trusted installer must own that file and point it at an absolute launcher path outside the package. The `.mcp.json` shipped inside each generated package is publisher content the launcher checks its own invocation against; it is not, and cannot be, the thing that makes the launcher run. See [the installer gap](#installer-and-marketplace-gap) below.
 
+## Unsigned preview
+
+Phase 1 ships the generated packages as **unsigned previews**, so a marketplace install activates with nothing for the user to configure. This is a deliberate, labelled reduction in what activation proves. It is described here in full rather than left to be discovered.
+
+**What a preview package is.** `scripts/build.mjs` writes `provenance-mode.json` into each generated package:
+
+```json
+{ "version": 1, "mode": "unsigned-preview", "client": "codex", "packageVersion": "0.3.0-dev.1",
+  "generatedFrom": "zenith-integrations@0.3.0-dev.1", "generator": "scripts/build.mjs", "verification": "…" }
+```
+
+and the matching `.mcp.json`, which runs the packaged bridge directly:
+
+```json
+{ "zenith": { "command": "node", "args": ["${PLUGIN_ROOT}/runtime/bridge/cli.mjs", "stdio"], "env": { "ZENITH_API_VERSION": "2" } } }
+```
+
+`enforceInstalledProvenance()` accepts that declaration and lets gated commands run. The two files are written together by one function (`scripts/package-mode.mjs`) and asserted together by `scripts/check.mjs`, so a package cannot declare one mode and carry the other's descriptor.
+
+**What it guarantees.** The integrity of a marketplace fetch, and nothing more: your client downloaded this repository's package over HTTPS, and `integrity.json` records the file hashes of the build that produced it, which is reproducibility. That is the same trust root as any `npx`-less GitHub install — *"you installed the repository you meant to install"*.
+
+**What it does not guarantee.** It does not authenticate a publisher. No signature is checked, so nothing here distinguishes bytes this project produced from bytes someone else produced and served under the same name, and anyone who can write the installed directory can change the package and its inventory together. The marker is inside the package, so it authenticates nothing about the package: it is a statement by the package about itself, and its whole effect is to let a labelled preview activate.
+
+**What it does not weaken.** Authority is unchanged. Zenith still authorises every call against the credential the browser issued, scoped to the workspace, projects and scopes that were approved; every change is still prepared, reviewed in the browser against its exact digest, and only then executed; and the connector still cannot approve its own operation. A preview build is not a more powerful build.
+
+**Where it is stated at runtime.** The provenance gate is the only thing that decides the mode, and it passes the answer down as an argument — never through an environment variable a caller could set. `login` prints `unsigned preview build — not publisher-verified …` as its first line, before the URL and the code; `status` prints the same line and carries `activation` and `verification` fields under `--json`; `doctor` carries them too. The link protocol has no verification field, so the state travels in the client name the approval page shows the person granting access: `Claude Code - unsigned preview`.
+
+**How to move to the signed path.** Rebuild in the release shape, sign, and register the launcher:
+
+```bash
+npm run build:signed     # .mcp.json invokes zenith-plugin-launcher; provenance-mode.json says signed-release
+npm run release:sign -- --key-id publisher-2026 \
+  --private-key "$HOME/.config/zenith-publisher/publisher-2026.private.pem" \
+  --trust "$HOME/.config/zenith-publisher/trusted-keys.json"
+npm run build            # restore the committed unsigned-preview shape
+```
+
+Then follow [Install the trusted launcher](#install-the-trusted-launcher) and [Runtime activation gate](#runtime-activation-gate). You do not have to wait for a signed release to harden an existing install: setting `ZENITH_PROVENANCE_MANIFEST`, `ZENITH_PROVENANCE_TRUST` or `ZENITH_REQUIRE_PROVENANCE=1` makes the preview marker irrelevant on any package, and the package is then verified — or refused — exactly like a release. A damaged, malformed or absent marker is never read as permission either: it fails closed with `provenance_required`.
+
 ## Key custody
 
 | Question | Answer |
@@ -127,7 +166,7 @@ node scripts/provenance.mjs verify-package \
 
 Both variables must be absolute paths and are never read from package content. A missing, invalid, untrusted, expired, rolled-back, tampered or mismatched package exits before any connection or tool is opened.
 
-Inside an installed package, `node runtime/bridge/cli.mjs --help` (also `-h` and `help`) and `--version` print static text and run without provenance inputs. Every other command — `doctor`, `stdio`, `setup` and the v2 control commands — is gated and fails closed with code `provenance_required` naming the missing variable. `ZENITH_REQUIRE_PROVENANCE=0` cannot disable the packaged gate.
+Inside an installed package, `node runtime/bridge/cli.mjs --help` (also `-h` and `help`) and `--version` print static text and run without provenance inputs. Every other command — `doctor`, `stdio`, `setup` and the v2 control commands — is gated and fails closed with code `provenance_required` naming the missing variable, unless the package declares [`"mode": "unsigned-preview"`](#unsigned-preview) and no provenance input is configured. `ZENITH_REQUIRE_PROVENANCE=0` cannot disable the packaged gate, and it cannot turn a signed-release or unmarked package into a preview one.
 
 The ungated commands are answered **before** the version-2 routing, not only before the gate. That routing keys off inherited environment — `ZENITH_API_VERSION=2` or `ZENITH_PROFILES_FILE` — so while help was printed after it, `--help` on an operator machine where either variable was already exported imported the whole control module graph (profiles, vault, keychain, remote) into a process the activation gate had deliberately not verified. It printed static text and opened nothing, so no credential was exposed, but the unverified import was real. `--help`, `-h`, `help` and `--version` now return before any control, profile or credential module is loaded, whatever the environment says.
 
@@ -182,5 +221,7 @@ There is **no per-release revocation**. A single bad release cannot be revoked w
 The checked-in Codex and Claude marketplace descriptors contain only source, manifest and presentation metadata. This repository has no installer callback, no activation hook, and no field for injecting operator trust paths, and none is invented here.
 
 The consequence, stated plainly: **the archive verification step before extraction/registration, and the ownership of the host MCP configuration, remain a trusted-installer responsibility that this repository cannot enforce.** Everything above is what the repository can prove once the launcher is actually invoked. Treat the status as accepted-with-residual-risk, not closed, until an installer owns the registration.
+
+This gap is the reason phase 1 ships an [unsigned preview](#unsigned-preview) rather than pretending the signed path is one click. With no installer to write operator trust paths and no published key, a marketplace install of a launcher-invoking package could not start at all: it failed closed on a command no user could supply. The preview makes that state usable and labelled instead of broken and silent. It does not close the gap, and nothing above changes for a signed release.
 
 The signed envelope covers its algorithm, key ID, signing time, expiry, and manifest. No trust key is embedded in this repository, and the repository does not silently alter Codex/Claude marketplace behavior or publish artifacts.

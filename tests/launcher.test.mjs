@@ -5,7 +5,8 @@ import { generateKeyPairSync } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { signedPackageEnvironment } from './provenance-fixture.mjs';
+import { asSignedReleasePackage, signedPackageEnvironment } from './provenance-fixture.mjs';
+import { SIGNED_RELEASE, UNSIGNED_PREVIEW, mcpServerEntry } from '../scripts/package-mode.mjs';
 import { createPackageManifest, signReleaseManifest } from '../packages/provenance/index.mjs';
 import { assertDescriptorBinding, normalizeEntry, stagePackage } from '../packages/launcher/cli.mjs';
 import { STATE_FILENAME, readLastGood, recordLastGood, statePath } from '../packages/launcher/state.mjs';
@@ -61,6 +62,9 @@ test('trusted launcher verifies before importing a package-owned runtime', { tim
   const packageDir = await mkdtemp(path.join(tmpdir(), 'zenith launcher package '));
   t.after(() => rm(packageDir, { recursive: true, force: true }));
   await cp(path.resolve('plugins/codex'), packageDir, { recursive: true });
+  // The launcher activates the signed-release shape; the committed package is
+  // the unsigned-preview shape, whose descriptor names node rather than the bin.
+  await asSignedReleasePackage(packageDir);
   const provenance = await signedPackageEnvironment(packageDir);
   t.after(provenance.cleanup);
   const env = { ...process.env, ...provenance.env };
@@ -272,8 +276,14 @@ test('the repository publishes the launcher as the bin the descriptors name', { 
   const { bin } = JSON.parse(await readFile(path.resolve('package.json'), 'utf8'));
   assert.deepEqual(Object.keys(bin), ['zenith-plugin-launcher']);
   assert.equal(path.resolve(bin['zenith-plugin-launcher']), launcher);
+  // The bin name and the command a signed-release descriptor declares are one
+  // definition, so the installed command and the descriptor cannot drift. The
+  // committed package is the unsigned-preview shape and deliberately does not
+  // name the launcher: it activates through the in-process gate instead.
+  assert.equal(mcpServerEntry('codex', SIGNED_RELEASE).command, 'zenith-plugin-launcher');
+  assert.equal(mcpServerEntry('codex', UNSIGNED_PREVIEW).command, 'node');
   const descriptor = JSON.parse(await readFile(path.resolve('plugins/codex/.mcp.json'), 'utf8'));
-  assert.equal(descriptor.zenith.command, 'zenith-plugin-launcher');
+  assert.equal(descriptor.zenith.command, 'node');
 
   // An installed bin runs from a working directory unrelated to the repository.
   const packageDir = await miniPackage(t, '1.0.0');

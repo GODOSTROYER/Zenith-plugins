@@ -30,7 +30,7 @@ const HELP_TEXT = 'Zenith connector: login | logout | status | stdio | doctor | 
   + 'Setup: setup --output ABSOLUTE_PATH --url TRUSTED_ORIGIN --workspace ID --token-file ABSOLUTE_PATH [--project ID] [--environment ID] [--allow-loopback-http]\n'
   + 'Setup creates a new private profile, never a credential or deployment. No implicit repository configuration.\n'
   + 'Local HTTP requires explicit opt-in. See docs/configuration.md.\n'
-  + 'In an installed package only --help and --version run ungated; stdio, doctor, setup and the v2 control commands require the trusted launcher\'s absolute ZENITH_PROVENANCE_MANIFEST and ZENITH_PROVENANCE_TRUST paths and fail closed with provenance_required. See docs/provenance.md.';
+  + 'An installed package that declares mode "unsigned-preview" in provenance-mode.json activates without provenance inputs, and login, status and doctor all report that it is not publisher-verified. Any other installed package runs only --help and --version ungated; stdio, doctor, setup and the v2 control commands then require the trusted launcher\'s absolute ZENITH_PROVENANCE_MANIFEST and ZENITH_PROVENANCE_TRUST paths and fail closed with provenance_required. Setting either variable, or ZENITH_REQUIRE_PROVENANCE=1, also makes a preview package verify. See docs/provenance.md.';
 
 export async function serve(client, { input = process.stdin, output = process.stdout, signal } = {}) {
   const active = new Map(); let buffer = Buffer.alloc(0), discarding = false, state = 'new';
@@ -125,12 +125,16 @@ export async function main(args = process.argv.slice(2)) {
   // gate had deliberately not verified. Nothing above this line reads a
   // credential, a profile or a provenance input.
   if (HELP_COMMANDS.has(command)) { console.log(HELP_TEXT); return; }
-  if (!UNGATED_COMMANDS.has(command)) await enforceInstalledProvenance();
+  // The gate's own answer is the only honest source for "is this build
+  // publisher-verified". It is passed down as an argument rather than through
+  // the environment, so nothing outside this process can claim a package is
+  // verified when the gate did not say so.
+  const activation = UNGATED_COMMANDS.has(command) ? undefined : (await enforceInstalledProvenance()).mode;
   if (VERSION_COMMANDS.has(command)) { console.log(VERSION); return; }
   // login, logout and status join this list so they work on a machine with no
   // Zenith environment at all, which is the entire point of a browser link.
   if (process.env.ZENITH_API_VERSION === '2' || process.env.ZENITH_PROFILES_FILE || ['login','logout','status','profile','source','remote-config'].includes(args[0])) {
-    const { main: controlMain } = await import('../control/cli.mjs'); await controlMain([...args]); return;
+    const { main: controlMain } = await import('../control/cli.mjs'); await controlMain([...args], { activation }); return;
   }
   if (process.env.ZENITH_API_VERSION && process.env.ZENITH_API_VERSION !== '1') throw new ClientError('unsupported_version', 'Select API version 1 or 2 explicitly.');
   if (args[0] === 'setup') { console.log(JSON.stringify(await setup(args.slice(1)), null, 2)); return; }

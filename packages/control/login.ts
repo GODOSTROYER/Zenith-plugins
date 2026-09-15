@@ -14,9 +14,10 @@ import path from 'node:path';
 import { ClientError } from '../client/dist/index.js';
 import { VERSION } from '../bridge/doctor.mjs';
 import { DEFAULT_REQUESTED_SCOPES, SCOPE_NAMES, linkOrigin, openBrowser, pollLink, startLink, type IssuedCredential } from './link.js';
-import { loadProfiles, updateProfiles, writeProfile, type Profiles } from './profiles.js';
+import { defaultProfilesFile, loadProfiles, resolveProfilesFile, updateProfiles, writeProfile, type Profiles } from './profiles.js';
 import { storeKeychain } from './keychain.js';
 import { storeVault } from './vault.js';
+import { PREVIEW_NOTICE, isPreview, withVerification, type Activation } from './activation.js';
 
 export const DEFAULT_ORIGIN = 'https://tryzenith.cloud';
 const PROFILE_NAME = /^[A-Za-z0-9_-]{1,40}$/;
@@ -32,6 +33,8 @@ export interface LoginIo {
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   signal?: AbortSignal;
   open?: (url: string) => boolean;
+  /** Reported by the provenance gate in packages/bridge/cli.mjs; never inferred here. */
+  activation?: Activation;
 }
 interface Flags { values: Record<string, string>; booleans: Set<string> }
 
@@ -65,10 +68,7 @@ export function defaultProfileName(origin: string): string {
   const cleaned = first.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);
   return PROFILE_NAME.test(cleaned) ? cleaned : 'zenith';
 }
-export function defaultProfilesFile(env: NodeJS.ProcessEnv, home = homedir()): string {
-  const base = env.XDG_CONFIG_HOME && path.isAbsolute(env.XDG_CONFIG_HOME) ? env.XDG_CONFIG_HOME : path.join(home, '.config');
-  return path.join(base, 'zenith', 'profiles.json');
-}
+export { defaultProfilesFile };
 export function defaultVaultPath(env: NodeJS.ProcessEnv, name: string, home = homedir()): string {
   const base = env.LOCALAPPDATA && /^[A-Za-z]:\\/.test(env.LOCALAPPDATA) ? env.LOCALAPPDATA : path.win32.join(home, 'AppData', 'Local');
   return path.win32.join(base, 'ZenithPrivate', `${name}.dpapi`);
@@ -98,6 +98,9 @@ export async function loginCommand(args: string[], io: LoginIo = {}): Promise<vo
   const { values, booleans } = parseFlags(args);
   const json = booleans.has('--json');
   const say = json ? err : out;
+  // The first line of a login is what the person reads before they approve
+  // anything, so an unverified build says so there rather than in a footer.
+  if (isPreview(io.activation)) say(`Zenith connector: ${PREVIEW_NOTICE}\n`);
   if (values['--loopback'] !== undefined && !['0', '1'].includes(values['--loopback'])) throw new ClientError('usage', 'Boolean connection flags accept only 0 or 1.');
   const allowLoopbackHttp = values['--loopback'] === '1' || env.ZENITH_ALLOW_LOOPBACK_HTTP === '1';
   const origin = linkOrigin(values['--url'] ?? env.ZENITH_URL ?? DEFAULT_ORIGIN, allowLoopbackHttp);
@@ -120,7 +123,7 @@ export async function loginCommand(args: string[], io: LoginIo = {}): Promise<vo
       ...(io.fetch ? { fetch: io.fetch } : {}),
       ...(env.ZENITH_DIAGNOSTICS === '1' ? { diagnostic: (record: Record<string, unknown>) => err(JSON.stringify(record)) } : {}),
     };
-    const start = await startLink({ ...transport, clientName: clientName(env), clientVersion: VERSION, ...(label === undefined ? {} : { label }), requestedScopes });
+    const start = await startLink({ ...transport, clientName: withVerification(clientName(env), io.activation), clientVersion: VERSION, ...(label === undefined ? {} : { label }), requestedScopes });
     say('Zenith link\n');
     say(`  1. Open   ${start.verificationUriComplete}`);
     say(`  2. Check the code shown there matches:   ${start.userCode}`);
@@ -145,6 +148,8 @@ export async function loginCommand(args: string[], io: LoginIo = {}): Promise<vo
     linked: true, origin, credentialId: credential.credentialId, ...(credential.label === undefined ? {} : { label: credential.label }),
     workspaceId: credential.workspaceId, projectIds: credential.projectIds, environmentIds: credential.environmentIds,
     scopes: credential.scopes, expiresAt: credential.expiresAt, allowWrites,
+    ...(io.activation === undefined ? {} : { activation: io.activation }),
+    ...(isPreview(io.activation) ? { verification: PREVIEW_NOTICE } : {}),
   };
 
   if (platform === 'win32') {
@@ -288,10 +293,11 @@ export async function logoutCommand(args: string[], io: LoginIo = {}): Promise<v
 
 /** Reader used by `status` so it does not reimplement profile selection. */
 export async function selectedProfile(env: NodeJS.ProcessEnv): Promise<{ file: string; name: string; active: boolean; credentialSource: string; allowWrites: boolean } | undefined> {
-  if (!env.ZENITH_PROFILES_FILE) return undefined;
-  const document = await loadProfiles(env.ZENITH_PROFILES_FILE);
+  const file = await resolveProfilesFile(env);
+  if (!file) return undefined;
+  const document = await loadProfiles(file);
   const name = env.ZENITH_PROFILE ?? document.active;
   const profile = Object.hasOwn(document.profiles, name) ? document.profiles[name] : undefined;
   if (!profile) throw new ClientError('profile_missing', 'Select an existing named connection.');
-  return { file: env.ZENITH_PROFILES_FILE, name, active: document.active === name, credentialSource: profile.credential.kind, allowWrites: profile.allowWrites };
+  return { file, name, active: document.active === name, credentialSource: profile.credential.kind, allowWrites: profile.allowWrites };
 }

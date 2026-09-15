@@ -9,6 +9,7 @@
   "files": [
     ".codex-plugin",
     ".mcp.json",
+    "provenance-mode.json",
     "runtime",
     "installer",
     "skills",

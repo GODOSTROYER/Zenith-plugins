@@ -1,6 +1,10 @@
-# Zenith — development package
+# Zenith — unsigned preview package
 
 Version 0.3.0-dev.1. Node 22.16 or later; no runtime installation or hooks.
+
+> **Unsigned preview build — not publisher-verified.** This package activates without a publisher signature, so installing it from a marketplace proves only that your client downloaded this repository's package. It does not prove who produced these bytes.
+>
+> The MCP descriptor runs the packaged bridge directly: `node ${PLUGIN_ROOT}/runtime/bridge/cli.mjs stdio`. `provenance-mode.json` records the same mode, and `login`, `status` and `doctor` repeat it in their output. For publisher authentication use the signed release path in docs/provenance.md.
 
 Link this package to a Zenith account with `login`. It prints a verification URL and a user code, waits while you sign in and approve a workspace, projects and scopes in the browser, then stores the issued credential in this platform's credential store: a private 0600 file beside the named profile on POSIX, the macOS Keychain with --keychain, a CurrentUser DPAPI vault on Windows. It never prints the credential, and named profiles are unavailable on Windows, where it prints the environment block to set instead. `status` reports what the approval granted. `logout` removes the local copy; it does not revoke authority, which you do at ORIGIN/integrations. Phase 1 deployments are simulated by the sandbox provider: LocalStack and AWS are not enabled.
 
@@ -10,19 +14,16 @@ From this installed package directory, run:
 
 ```bash
 node runtime/bridge/cli.mjs --help
-node runtime/bridge/cli.mjs --version
+node runtime/bridge/cli.mjs login
+node runtime/bridge/cli.mjs status
 ```
 
-Only --help and --version run ungated. doctor, stdio, setup and the v2 control commands, login included, require provenance inputs and fail closed with code provenance_required naming the missing variable. A command that opens a network connection and writes a credential is deliberately the last one that should run before this package has been verified. Run them through the trusted launcher instead:
-
-```bash
-zenith-plugin-launcher --package-dir ABSOLUTE_PATH_TO_THIS_PACKAGE --entry runtime/bridge/cli.mjs doctor
-```
+In this preview build every command runs without provenance inputs. Set ZENITH_PROVENANCE_MANIFEST and ZENITH_PROVENANCE_TRUST, or ZENITH_REQUIRE_PROVENANCE=1, and the preview marker is ignored: the package is then verified against the signed envelope exactly as a release is, and fails closed without one.
 
 For v1 use ZENITH_CONFIG_FILE. For v2 use explicit ZENITH_PROFILES_FILE and named profiles, or configure ZENITH_URL, scope IDs and one credential source. The agent process must inherit that environment. Never commit credentials, put them in chat, or let project content select a credential destination.
 
 The setup command creates a new private profile and refuses overwrites. It does not issue credentials or verify a backend. Doctor checks authenticated context, scope and capabilities, not infrastructure health. Run the stdio command through an MCP client.
 
-Production installers/launchers must provide absolute ZENITH_PROVENANCE_MANIFEST and ZENITH_PROVENANCE_TRUST paths. ZENITH_PROVENANCE_MANIFEST must be a sign-package envelope for this exact package directory, not a release manifest; a release manifest is refused with subject_mismatch. Whenever code in this package runs, the gate proves the package bytes match that signed Ed25519 envelope before the MCP/control surface opens, and ZENITH_REQUIRE_PROVENANCE=0 cannot disable it. It does not prove how this package was registered: an MCP client reads its server configuration before any code here runs, so the host MCP configuration is the trust root. A trusted installer must own that configuration and point it at an absolute zenith-plugin-launcher path outside this directory. The copy of the launcher under installer/ in this package is an installer input, not a trust root. See docs/provenance.md in the source repository.
+What the preview does and does not guarantee. It guarantees nothing about the publisher: your client fetched this package over HTTPS from the repository you named, and integrity.json records the file hashes of the build that produced it, which is transport and reproducibility rather than publisher authentication. Anyone who can write this directory can change these bytes and the inventory together. It does not weaken the operations themselves: Zenith still authorises every call against the credential the browser issued, every change is reviewed in the browser before it runs, and this package still cannot approve itself. For publisher authentication install the signed release, which invokes zenith-plugin-launcher and verifies the package against a signed Ed25519 envelope and an operator-owned trust file. See docs/provenance.md in the source repository.
 
 Revoke the credential in Zenith before uninstalling. Replace this entire directory on upgrades; do not mix runtime versions. integrity.json records file hashes for reproducibility, not a publisher signature.

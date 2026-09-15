@@ -69,6 +69,11 @@ test('a generated plugin cannot disable its activation gate with the environment
   const dir = await mkdtemp(path.join(tmpdir(), 'zenith provenance activation '));
   t.after(() => rm(dir, { recursive: true, force: true }));
   await cp(path.resolve('plugins/codex'), dir, { recursive: true });
+  // A package with no activation marker is a package that claims nothing about
+  // itself: it must produce the signed requirement, and ZENITH_REQUIRE_PROVENANCE=0
+  // must not change that. The unsigned-preview marker is a separate, declared
+  // mode, covered by tests/activation.test.mjs.
+  await rm(path.join(dir, 'provenance-mode.json'), { force: true });
   const env = { ...process.env, ZENITH_REQUIRE_PROVENANCE: '0', ZENITH_URL: 'https://zenith.example', ZENITH_WORKSPACE_ID: 'ws', ZENITH_TOKEN: `za_${'X'.repeat(43)}` };
   delete env.ZENITH_PROVENANCE_MANIFEST; delete env.ZENITH_PROVENANCE_TRUST;
   for (const command of ['doctor', 'stdio', 'setup']) {

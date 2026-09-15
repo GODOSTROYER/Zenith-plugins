@@ -1,6 +1,7 @@
 /** Explicit user configuration only; never discover endpoints from a repository. */
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, rename, unlink } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { readVault } from './vault.js';
@@ -54,11 +55,37 @@ export async function writeProfile(file:string,profileName:string,value:unknown)
   return {created:selected,active};
 }
 const conflicting=['ZENITH_URL','ZENITH_WORKSPACE_ID','ZENITH_PROJECT_ID','ZENITH_ENVIRONMENT_ID','ZENITH_CONFIG_FILE','ZENITH_TOKEN_FILE','ZENITH_TOKEN_VAULT','ZENITH_TOKEN_KEYCHAIN_SERVICE','ZENITH_TOKEN_KEYCHAIN_ACCOUNT','ZENITH_CREDENTIAL_KIND','ZENITH_ALLOW_WRITES','ZENITH_ALLOW_LOOPBACK_HTTP'];
+/** The POSIX location `login` writes when no explicit profiles file is configured. */
+export function defaultProfilesFile(env:NodeJS.ProcessEnv,home:string=homedir()):string{
+  const base=env.XDG_CONFIG_HOME&&isAbsolute(env.XDG_CONFIG_HOME)?env.XDG_CONFIG_HOME:join(home,'.config');
+  return join(base,'zenith','profiles.json');
+}
+/**
+ * Which named-profile document this process should read, if any.
+ *
+ * An explicit ZENITH_PROFILES_FILE always wins. Otherwise the connector falls
+ * back to the file `login` just wrote in the user's own configuration
+ * directory, because a plugin's MCP server is started by the host and cannot be
+ * handed a per-user absolute path in a committed descriptor: without this, a
+ * browser link succeeded and the very next server start could not find it.
+ * The fallback is deliberately narrow. It is the user's own home configuration,
+ * never repository content; it is skipped entirely when any explicit connection
+ * variable is set, so nothing is ever silently preferred over what an operator
+ * configured; and it is POSIX-only, matching the platforms `login` writes a
+ * profile on at all.
+ */
+export async function resolveProfilesFile(env:NodeJS.ProcessEnv=process.env,platform:NodeJS.Platform=process.platform):Promise<string|undefined>{
+  if(env.ZENITH_PROFILES_FILE)return env.ZENITH_PROFILES_FILE;
+  if(platform==='win32'||env.ZENITH_CONFIG_FILE||conflicting.some(k=>env[k]!==undefined))return undefined;
+  const file=defaultProfilesFile(env);
+  try{return (await lstat(file)).isFile()?file:undefined;}catch{return undefined;}
+}
 export async function controlClient(env:NodeJS.ProcessEnv=process.env):Promise<ControlClient>{
   let profile:Profile;
-  if(env.ZENITH_PROFILES_FILE){
+  const profilesFile=await resolveProfilesFile(env);
+  if(profilesFile){
     if(conflicting.some(k=>env[k]!==undefined))throw new ClientError('ambiguous_configuration','Use named profiles or individual connection variables, not both.');
-    const doc=await loadProfiles(env.ZENITH_PROFILES_FILE),selected=env.ZENITH_PROFILE??doc.active;
+    const doc=await loadProfiles(profilesFile),selected=env.ZENITH_PROFILE??doc.active;
     const found=Object.hasOwn(doc.profiles,selected)?doc.profiles[selected]:undefined;if(!found)throw new ClientError('profile_missing','Select an existing named connection.');profile=found;
   }else{
     if(env.ZENITH_PROFILE||env.ZENITH_CONFIG_FILE)throw new ClientError('ambiguous_configuration','V2 named profiles use ZENITH_PROFILES_FILE. Do not reuse a version-1 profile implicitly.');
