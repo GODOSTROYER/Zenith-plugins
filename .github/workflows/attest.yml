@@ -36,7 +36,16 @@ jobs:
           node-version: '22.16.0'
           cache: npm
       - run: npm ci --ignore-scripts
+      # Unsigned by design. Publisher signing is an operator step with an
+      # operator-held key (npm run release:sign); scripts/release.mjs refuses to
+      # sign in an automated environment. This workflow's GitHub/Sigstore
+      # attestation binds artifact digests to this commit and workflow, which is
+      # a different claim from publisher authentication. See docs/provenance.md.
       - run: npm run release:prepare
+      - name: Confirm this workflow produced no publisher signature
+        run: |
+          test ! -e artifacts/release-manifest.json
+          ! ls artifacts/*.package-manifest.json > /dev/null 2>&1
       - name: Require committed generated artifacts
         run: git diff --exit-code -- plugins packages/client/dist packages/control/dist .agents .claude-plugin
       - name: Generate runtime dependency SBOM from the reviewed lockfile
