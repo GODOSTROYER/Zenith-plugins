@@ -120,7 +120,11 @@ async function main() {
   const envelope = await jsonFile(manifestPath, 'publisher manifest');
   const trustedKeys = await jsonFile(trust.path, 'publisher trust allowlist');
 
-  const stateFile = statePath(trust.path);
+  const state = await statePath(trust.path);
+  // The default location is the trust directory, already reported above; only
+  // an override adds a second unchecked directory worth naming.
+  if (state.overridden && !state.permissionsChecked) warn('state_permissions_unverified', state.reason);
+  const stateFile = state.path;
   // The subject name is read from the unverified envelope only to select the
   // recorded floor. It is signed, so a changed subject fails verification.
   const lastGood = await readLastGood(stateFile, versionFloorKey(envelope?.manifest));

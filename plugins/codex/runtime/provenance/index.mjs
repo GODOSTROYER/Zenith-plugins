@@ -17,6 +17,7 @@ const KEY_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
+const WINDOWS_UNVERIFIED = 'Windows ACLs are not validated by this check; protect the trust directory with an explicit ACL.';
 
 export class ProvenanceError extends Error {
   constructor(code, message) {
@@ -73,13 +74,29 @@ export async function assertTrustInputPath(file, label, { platform = process.pla
   let info;
   try { info = await lstat(file); } catch { fail('provenance_required', `The ${label} could not be read from the trusted installer path.`); }
   if (!info.isFile()) fail('unsafe_trust_path', `${label} must be a regular file, not a link, directory or device.`);
-  if (platform === 'win32') return { path: file, permissionsChecked: false, reason: 'Windows ACLs are not validated by this check; protect the trust directory with an explicit ACL.' };
+  if (platform === 'win32') return { path: file, permissionsChecked: false, reason: WINDOWS_UNVERIFIED };
   if ((info.mode & 0o002) !== 0) fail('unsafe_trust_path', `${label} is world-writable; any local user could replace the trust decision.`);
-  let parent;
-  try { parent = await lstat(path.dirname(file)); } catch { fail('provenance_required', `The ${label} directory could not be read.`); }
-  if ((parent.mode & 0o002) !== 0 && (parent.mode & 0o1000) === 0)
-    fail('unsafe_trust_path', `${label} sits in a world-writable directory; any local user could replace it.`);
+  await assertTrustDirectoryPath(path.dirname(file), label, { platform });
   return { path: file, permissionsChecked: true };
+}
+
+/**
+ * The directory half of the check above, applied on its own to a trust input
+ * that may not exist yet — the rollback-floor state file is created by the
+ * first accepted activation, so the file itself cannot be stat-ed, but the
+ * directory that will hold it decides who may delete or replace it, and
+ * deleting it resets the rollback floor. Same codes, same Windows caveat.
+ */
+export async function assertTrustDirectoryPath(directory, label, { platform = process.platform } = {}) {
+  if (typeof directory !== 'string' || !path.isAbsolute(directory))
+    fail('provenance_required', `${label} must be an absolute path supplied by the trusted installer.`);
+  let info;
+  try { info = await lstat(directory); } catch { fail('provenance_required', `The ${label} directory could not be read.`); }
+  // Existence is portable; the mode bits are not.
+  if (platform === 'win32') return { path: directory, permissionsChecked: false, reason: WINDOWS_UNVERIFIED };
+  if ((info.mode & 0o002) !== 0 && (info.mode & 0o1000) === 0)
+    fail('unsafe_trust_path', `${label} sits in a world-writable directory; any local user could replace it.`);
+  return { path: directory, permissionsChecked: true };
 }
 
 async function packageFiles(root, current = root, output = {}) {
