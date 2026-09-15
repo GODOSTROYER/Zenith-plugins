@@ -18,7 +18,23 @@ npm ci --ignore-scripts
 npm run verify
 ```
 
-Generated plugin directories are committed. Installing those directories does not require the compiler or a runtime dependency installation. Production activation also requires the trusted `zenith-plugin-launcher` from `packages/launcher/cli.mjs` and its verifier to be installed outside the plugin directory; the launcher must be on PATH with the two absolute provenance environment variables set.
+Generated plugin directories are committed. Installing those directories does not require the compiler or a runtime dependency installation.
+
+Production activation additionally requires the trusted `zenith-plugin-launcher` outside the plugin directory. It is this repository's only `bin`, so install it from a verified checkout or archive:
+
+```bash
+npm install -g "$PWD"
+command -v zenith-plugin-launcher
+```
+
+Then set the two absolute provenance variables in the environment the MCP client passes to the server, using the **package** envelope for the directory being activated:
+
+```bash
+export ZENITH_PROVENANCE_MANIFEST=/absolute/path/zenith-codex-VERSION.package-manifest.json
+export ZENITH_PROVENANCE_TRUST=/absolute/path/trusted-keys.json
+```
+
+A release manifest is refused here with `subject_mismatch`. [Publisher provenance](provenance.md) has the launcher install alternatives, the rollback floor, and the statement of what the gate cannot prove about registration.
 
 ## 1. Issue authority in the Zenith checkout
 
@@ -92,9 +108,15 @@ The repository marketplace `.agents/plugins/marketplace.json` selects `plugins/c
 
 ## Upgrade, artifacts and uninstall
 
+**Breaking change when upgrading from a pre-provenance package.** The generated `.mcp.json` now invokes `zenith-plugin-launcher` instead of `node`. An existing registration keeps pointing at `node` and must be replaced; a new one fails with the MCP client's "command not found" until the launcher is installed as described above. Inside an installed package, `node runtime/bridge/cli.mjs --help` and `--version` still work with no provenance inputs, but `doctor`, `stdio`, `setup` and the v2 control commands now exit 1 with code `provenance_required` until both absolute variables are set — run them through the launcher instead:
+
+```bash
+zenith-plugin-launcher --package-dir /absolute/path/to/package --entry runtime/bridge/cli.mjs doctor
+```
+
 Pin compatible server/client revisions and review changes. Rebuild using the lockfile and replace the entire generated package, not individual runtime files. Restart/reload the agent according to its client behavior. Dev.2 requires result contract 1 and rejects ambiguous connection configuration; follow the migration notes in [configuration](configuration.md).
 
-`npm run release:prepare` verifies the checkout and writes both npm `.tgz` review archives, `release.json` and `SHA256SUMS` under ignored `artifacts/`. It does not publish packages or create a GitHub release. Sign `release.json`'s archive set separately, then run the [provenance verification gate](provenance.md) before consuming it. Hash inventories are not signatures; no public marketplace approval is implied.
+`npm run release:prepare` verifies the checkout and writes both npm `.tgz` review archives, `release.json` and `SHA256SUMS` under ignored `artifacts/`; its output is labelled unsigned. `npm run release:sign -- --key-id ID --private-key ABSOLUTE_FILE --trust ABSOLUTE_FILE` additionally writes and re-verifies the release and per-package envelopes. Neither publishes a package or creates a GitHub release, and neither will sign in CI. Run the [provenance verification gate](provenance.md) before consuming any archive. Hash inventories are not signatures; no public marketplace approval is implied.
 
 **Revoke the credential in Zenith before uninstalling**:
 
