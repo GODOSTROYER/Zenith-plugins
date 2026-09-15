@@ -9,11 +9,15 @@ import {
   verifyPackageDirectory, verifyArtifactDirectory, ProvenanceError,
 } from '../packages/provenance/index.mjs';
 
+export const DEFAULT_EXPIRY_DAYS = 90;
+
 const usage = `Usage:
-  node scripts/provenance.mjs sign-package --package DIR --key-id ID --private-key FILE --output FILE [--client codex|claude-code]
+  node scripts/provenance.mjs sign-package --package DIR --key-id ID --private-key FILE --output FILE [--client codex|claude-code] [--expires ISO]
   node scripts/provenance.mjs sign-release --artifacts DIR --key-id ID --private-key FILE --output FILE [--expires ISO]
   node scripts/provenance.mjs verify-package --package DIR --manifest FILE --trust FILE
-  node scripts/provenance.mjs verify-release --artifacts DIR --manifest FILE --trust FILE`;
+  node scripts/provenance.mjs verify-release --artifacts DIR --manifest FILE --trust FILE
+
+Every envelope carries an expiry. Without --expires the signature expires ${DEFAULT_EXPIRY_DAYS} days after signing.`;
 
 function options(args) {
   const result = {};
@@ -36,24 +40,31 @@ async function readPrivateKey(file) {
   catch { throw new ProvenanceError('signing_key_required', 'Could not read an Ed25519 private key from the supplied external path.'); }
 }
 
+/** Signatures always expire. An omitted --expires becomes an explicit bounded default, never "never". */
+export function expiryFor(value, signedAt = new Date()) {
+  if (value !== undefined) return value;
+  return new Date(signedAt.getTime() + DEFAULT_EXPIRY_DAYS * 86_400_000).toISOString();
+}
+
+async function signTo(output, payload, values) {
+  const expiresAt = expiryFor(values.expires);
+  const envelope = signReleaseManifest(payload, { keyId: values['key-id'], privateKey: await readPrivateKey(values['private-key']), expiresAt });
+  await writeFile(path.resolve(output), `${JSON.stringify(envelope, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+  const result = { status: 'signed', subject: payload.subject, expiresAt, defaultedExpiry: values.expires === undefined, output: path.resolve(output) };
+  console.log(JSON.stringify(result));
+  return result;
+}
+
 async function main(args = process.argv.slice(2)) {
   const [command, ...rest] = args;
   const values = options(rest);
   if (command === 'sign-package') {
     required(values, 'package', 'key-id', 'private-key', 'output');
-    const payload = await createPackageManifest(values.package, { client: values.client });
-    const envelope = signReleaseManifest(payload, { keyId: values['key-id'], privateKey: await readPrivateKey(values['private-key']), expiresAt: values.expires });
-    await writeFile(path.resolve(values.output), `${JSON.stringify(envelope, null, 2)}\n`, { flag: 'wx' });
-    console.log(JSON.stringify({ status: 'signed', subject: payload.subject, output: path.resolve(values.output) }));
-    return;
+    return signTo(values.output, await createPackageManifest(values.package, { client: values.client }), values);
   }
   if (command === 'sign-release') {
     required(values, 'artifacts', 'key-id', 'private-key', 'output');
-    const payload = await createReleaseManifest(values.artifacts);
-    const envelope = signReleaseManifest(payload, { keyId: values['key-id'], privateKey: await readPrivateKey(values['private-key']), expiresAt: values.expires });
-    await writeFile(path.resolve(values.output), `${JSON.stringify(envelope, null, 2)}\n`, { flag: 'wx' });
-    console.log(JSON.stringify({ status: 'signed', subject: payload.subject, output: path.resolve(values.output) }));
-    return;
+    return signTo(values.output, await createReleaseManifest(values.artifacts), values);
   }
   if (command === 'verify-package' || command === 'verify-release') {
     required(values, command === 'verify-package' ? 'package' : 'artifacts', 'manifest', 'trust');
@@ -62,8 +73,9 @@ async function main(args = process.argv.slice(2)) {
     const result = command === 'verify-package'
       ? await verifyPackageDirectory(values.package, envelope, { trustedKeys })
       : await verifyArtifactDirectory(values.artifacts, envelope, { trustedKeys });
-    console.log(JSON.stringify({ status: 'verified', keyId: result.keyId, subject: result.manifest.subject }));
-    return;
+    const summary = { status: 'verified', keyId: result.keyId, subject: result.manifest.subject, expiresAt: result.expiresAt };
+    console.log(JSON.stringify(summary));
+    return summary;
   }
   throw new ProvenanceError('usage', usage);
 }

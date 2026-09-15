@@ -16,6 +16,7 @@ export const ALGORITHM = 'ed25519';
 const KEY_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const BASE64URL = /^[A-Za-z0-9_-]+$/;
+const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
 
 export class ProvenanceError extends Error {
   constructor(code, message) {
@@ -52,6 +53,33 @@ async function readRegularFile(file, failureCode, message) {
   try { info = await lstat(file); } catch { fail(failureCode, message); }
   if (!info.isFile()) fail(failureCode, message);
   try { return await readFile(file); } catch { fail(failureCode, message); }
+}
+
+/**
+ * Validate an operator-supplied trust input path (a signed envelope or a trust
+ * allowlist) before it is read. Both are environment-supplied, so both decide
+ * what code this machine will execute.
+ *
+ * The path must be absolute and a regular file. Where the platform reports
+ * POSIX modes, the file must not be world-writable and must not sit directly in
+ * a world-writable directory without the sticky bit, because either lets an
+ * unprivileged local user substitute the trust decision. Windows ACLs are not
+ * readable through Node's portable stat, so the result reports the check as
+ * unverified instead of claiming a guarantee the platform did not give.
+ */
+export async function assertTrustInputPath(file, label, { platform = process.platform } = {}) {
+  if (typeof file !== 'string' || !path.isAbsolute(file))
+    fail('provenance_required', `${label} must be an absolute path supplied by the trusted installer.`);
+  let info;
+  try { info = await lstat(file); } catch { fail('provenance_required', `The ${label} could not be read from the trusted installer path.`); }
+  if (!info.isFile()) fail('unsafe_trust_path', `${label} must be a regular file, not a link, directory or device.`);
+  if (platform === 'win32') return { path: file, permissionsChecked: false, reason: 'Windows ACLs are not validated by this check; protect the trust directory with an explicit ACL.' };
+  if ((info.mode & 0o002) !== 0) fail('unsafe_trust_path', `${label} is world-writable; any local user could replace the trust decision.`);
+  let parent;
+  try { parent = await lstat(path.dirname(file)); } catch { fail('provenance_required', `The ${label} directory could not be read.`); }
+  if ((parent.mode & 0o002) !== 0 && (parent.mode & 0o1000) === 0)
+    fail('unsafe_trust_path', `${label} sits in a world-writable directory; any local user could replace it.`);
+  return { path: file, permissionsChecked: true };
 }
 
 async function packageFiles(root, current = root, output = {}) {
@@ -99,7 +127,42 @@ function assertEnvelopeShape(envelope) {
   if (!envelope.manifest || typeof envelope.manifest !== 'object' || Array.isArray(envelope.manifest)) fail('invalid_manifest', 'Publisher envelope has no manifest object.');
   if (envelope.manifest.manifestVersion !== MANIFEST_VERSION) fail('unsupported_manifest', 'Unsupported publisher manifest version.');
   const signedAt = parseTimestamp(envelope.signedAt, 'signedAt');
-  if (envelope.expiresAt !== undefined && parseTimestamp(envelope.expiresAt, 'expiresAt') <= signedAt) fail('invalid_envelope', 'expiresAt must be later than signedAt.');
+  // Expiry is mandatory. An unbounded signature stays valid forever after a key
+  // is compromised, and key-level revocation only helps operators who refresh
+  // their trust file. Envelope version 1 has never been distributed, so
+  // tightening it here costs no installed consumer.
+  if (envelope.expiresAt === undefined) fail('expiry_required', 'Publisher envelopes must carry an expiresAt instant; unbounded signatures are refused.');
+  if (parseTimestamp(envelope.expiresAt, 'expiresAt') <= signedAt) fail('invalid_envelope', 'expiresAt must be later than signedAt.');
+}
+
+/** Semantic-version precedence, including prerelease ordering (1.0.0-dev.1 < 1.0.0). */
+function parseVersion(value, label) {
+  const match = typeof value === 'string' ? SEMVER.exec(value) : null;
+  if (!match) fail('unsupported_version', `${label} must be a semantic version such as 1.2.3 or 1.2.3-dev.1.`);
+  return { numbers: [Number(match[1]), Number(match[2]), Number(match[3])], prerelease: match[4] === undefined ? null : match[4].split('.') };
+}
+
+export function compareVersions(left, right, label = 'Version') {
+  const a = parseVersion(left, label), b = parseVersion(right, `${label} floor`);
+  for (let index = 0; index < 3; index++) if (a.numbers[index] !== b.numbers[index]) return a.numbers[index] < b.numbers[index] ? -1 : 1;
+  if (a.prerelease === null || b.prerelease === null) return a.prerelease === b.prerelease ? 0 : a.prerelease === null ? 1 : -1;
+  for (let index = 0; index < Math.max(a.prerelease.length, b.prerelease.length); index++) {
+    const one = a.prerelease[index], other = b.prerelease[index];
+    if (one === undefined) return -1;
+    if (other === undefined) return 1;
+    if (one === other) continue;
+    const oneNumeric = /^\d+$/.test(one), otherNumeric = /^\d+$/.test(other);
+    if (oneNumeric && otherNumeric) return Number(one) < Number(other) ? -1 : 1;
+    if (oneNumeric !== otherNumeric) return oneNumeric ? -1 : 1;
+    return one < other ? -1 : 1;
+  }
+  return 0;
+}
+
+/** The operator trust file's rollback floor key for a signed manifest. */
+export function versionFloorKey(manifest) {
+  const subject = manifest?.subject;
+  return typeof subject?.name === 'string' ? subject.name : typeof subject?.kind === 'string' ? subject.kind : undefined;
 }
 
 function normalizeTrust(trustedKeys) {
@@ -119,7 +182,17 @@ function normalizeTrust(trustedKeys) {
     }
     keys.set(entry.id, { ...entry, status, notBefore, notAfter });
   }
-  return keys;
+  const floors = new Map();
+  const declared = trustedKeys.minimumVersions;
+  if (declared !== undefined) {
+    if (!declared || typeof declared !== 'object' || Array.isArray(declared)) fail('invalid_trust', 'Trust allowlist minimumVersions must be an object keyed by subject.');
+    for (const [subject, floor] of Object.entries(declared)) {
+      if (typeof floor !== 'string') fail('invalid_trust', `Trust allowlist minimumVersions.${subject} must be a version string.`);
+      parseVersion(floor, `Trust allowlist minimumVersions.${subject}`);
+      floors.set(subject, floor);
+    }
+  }
+  return { keys, floors };
 }
 
 function decodeSignature(value) {
@@ -145,9 +218,9 @@ function signingPayload(envelope) {
 }
 
 /** Verify the signed envelope and operator-selected key policy. */
-export function verifyReleaseManifest(envelope, { trustedKeys, now = new Date() } = {}) {
+export function verifyReleaseManifest(envelope, { trustedKeys, now = new Date(), minimumVersion } = {}) {
   assertEnvelopeShape(envelope);
-  const trust = normalizeTrust(trustedKeys);
+  const { keys: trust, floors } = normalizeTrust(trustedKeys);
   const trusted = trust.get(envelope.keyId);
   if (!trusted) fail('unknown_key', `Publisher key ${envelope.keyId} is not trusted by this operator.`);
   if (trusted.status === 'revoked' || trusted.revokedAt !== undefined) fail('revoked_key', `Publisher key ${envelope.keyId} is revoked.`);
@@ -162,7 +235,21 @@ export function verifyReleaseManifest(envelope, { trustedKeys, now = new Date() 
   try { valid = verify(null, Buffer.from(canonicalize(signingPayload(envelope))), keyObject(trusted.publicKey), decodeSignature(envelope.signature)); }
   catch (error) { if (error instanceof ProvenanceError) throw error; }
   if (!valid) fail('signature_invalid', 'Publisher manifest signature is invalid.');
-  return { keyId: envelope.keyId, manifest: envelope.manifest, signedAt: envelope.signedAt };
+  // Rollback protection. Policy is applied only to an authenticated manifest.
+  // The floor comes from the operator trust file (minimumVersions, keyed by the
+  // package name or, for a release manifest, by its subject kind) and from the
+  // caller's recorded last-good version; the higher of the two wins.
+  const floorKey = versionFloorKey(envelope.manifest);
+  const candidates = [floors.get(floorKey), minimumVersion].filter(value => value !== undefined);
+  if (candidates.length) {
+    const version = envelope.manifest.subject?.version;
+    if (typeof version !== 'string') fail('invalid_manifest', 'A rollback floor is configured but the signed subject has no version.');
+    for (const floor of candidates) {
+      if (compareVersions(version, floor, `${floorKey} version`) < 0)
+        fail('version_rollback', `Signed ${floorKey} version ${version} is older than the accepted floor ${floor}.`);
+    }
+  }
+  return { keyId: envelope.keyId, manifest: envelope.manifest, signedAt: envelope.signedAt, expiresAt: envelope.expiresAt };
 }
 
 export function signReleaseManifest(manifest, { keyId, privateKey, signedAt = new Date().toISOString(), expiresAt } = {}) {
@@ -170,10 +257,10 @@ export function signReleaseManifest(manifest, { keyId, privateKey, signedAt = ne
   if (!manifest || manifest.manifestVersion !== MANIFEST_VERSION) fail('invalid_manifest', 'Manifest must use version 1.');
   if (!privateKey) fail('signing_key_required', 'An external Ed25519 private key is required for signing.');
   assertTimestamp(signedAt, 'signedAt');
-  if (expiresAt !== undefined) assertTimestamp(expiresAt, 'expiresAt');
-  if (expiresAt !== undefined && Date.parse(expiresAt) <= Date.parse(signedAt)) fail('invalid_envelope', 'expiresAt must be later than signedAt.');
-  const envelope = { envelopeVersion: ENVELOPE_VERSION, algorithm: ALGORITHM, keyId, signedAt, manifest };
-  if (expiresAt !== undefined) envelope.expiresAt = expiresAt;
+  if (expiresAt === undefined) fail('expiry_required', 'Signing requires an explicit expiresAt; unbounded publisher signatures are refused.');
+  assertTimestamp(expiresAt, 'expiresAt');
+  if (Date.parse(expiresAt) <= Date.parse(signedAt)) fail('invalid_envelope', 'expiresAt must be later than signedAt.');
+  const envelope = { envelopeVersion: ENVELOPE_VERSION, algorithm: ALGORITHM, keyId, signedAt, manifest, expiresAt };
   try { envelope.signature = sign(null, Buffer.from(canonicalize(envelope)), privateKey).toString('base64url'); }
   catch { fail('signing_failed', 'Could not sign the publisher manifest with the supplied Ed25519 key.'); }
   return envelope;
