@@ -7,17 +7,25 @@
   "engines": {
     "node": ">=22.16.0"
   },
+  "bin": {
+    "zenith-plugin-launcher": "packages/launcher/cli.mjs"
+  },
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.control.json",
     "test": "node --test tests/*.test.mjs",
     "check": "node scripts/check.mjs",
-    "verify": "npm run typecheck && npm run build && npm test && npm run contracts:check && npm run check",
+    "verify": "npm run typecheck && npm run build && npm test && npm run provenance:selftest && npm run contracts:check && npm run check",
     "setup": "node packages/bridge/cli.mjs setup",
     "doctor": "node packages/bridge/cli.mjs doctor",
     "start": "node packages/bridge/cli.mjs stdio",
     "test:live": "node scripts/live-smoke.mjs",
     "release:prepare": "npm run verify && node scripts/release.mjs",
+    "release:sign": "npm run verify && node scripts/release.mjs --sign",
+    "provenance:selftest": "node scripts/provenance.mjs selftest",
+    "provenance:sign-package": "node scripts/provenance.mjs sign-package",
+    "provenance:verify-package": "node scripts/provenance.mjs verify-package",
+    "provenance:verify": "node scripts/provenance.mjs verify-release",
     "contracts:check": "node scripts/contracts.mjs",
     "source": "node packages/bridge/cli.mjs source",
     "profile": "node packages/bridge/cli.mjs profile",

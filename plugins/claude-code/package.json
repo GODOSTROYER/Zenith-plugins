@@ -10,6 +10,7 @@
     ".claude-plugin",
     ".mcp.json",
     "runtime",
+    "installer",
     "skills",
     "agents",
     "README.md",

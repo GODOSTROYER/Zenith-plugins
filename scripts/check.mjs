@@ -6,7 +6,20 @@ import assert from 'node:assert/strict';
 import { files, inventory } from './package-files.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const readJson = async file => JSON.parse(await readFile(file, 'utf8'));
-const { version } = await readJson(path.join(root, 'package.json'));
+const rootPackage = await readJson(path.join(root, 'package.json'));
+const { version } = rootPackage;
+// The launcher must stay installable outside any plugin package: the trust root
+// is the host MCP configuration pointing at this bin, not a file the package
+// ships. Keep the bin name identical to the command every generated .mcp.json
+// declares.
+const LAUNCHER_COMMAND = 'zenith-plugin-launcher';
+assert.deepEqual(Object.keys(rootPackage.bin ?? {}), [LAUNCHER_COMMAND], 'Exactly one launcher bin must be published.');
+assert.equal(rootPackage.bin[LAUNCHER_COMMAND], 'packages/launcher/cli.mjs');
+const launcherSource = await readFile(path.join(root, rootPackage.bin[LAUNCHER_COMMAND]), 'utf8');
+assert.ok(launcherSource.startsWith('#!/usr/bin/env node\n'), 'The launcher bin needs an executable shebang.');
+assert.ok((await stat(path.join(root, 'packages/provenance/index.mjs'))).isFile(), 'The launcher bin must ship beside its verifier.');
+assert.match(rootPackage.scripts.verify, /provenance:selftest/, 'The verify lane must run the provenance selftest.');
+assert.match(rootPackage.scripts['release:sign'], /release\.mjs --sign/, 'Release signing must stay an explicit gated script.');
 const isInside = (base, target) => { const relative = path.relative(base, target); return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative); };
 for (const client of ['codex', 'claude-code']) {
   const base = path.join(root, 'plugins', client);
@@ -16,11 +29,12 @@ for (const client of ['codex', 'claude-code']) {
   assert.equal(manifest.skills, './skills/'); assert.equal(manifest.mcpServers, './.mcp.json');
   const config = await readJson(path.join(base, '.mcp.json'));
   const server = (client === 'codex' ? config : config.mcpServers).zenith;
-  assert.deepEqual(Object.keys(server).sort(), ['args', 'command']); assert.equal(server.command, 'node');
-  assert.deepEqual(server.args, [`${client === 'codex' ? '${PLUGIN_ROOT}' : '${CLAUDE_PLUGIN_ROOT}'}/runtime/bridge/cli.mjs`, 'stdio']);
-  const entry = server.args[0].replace('${PLUGIN_ROOT}', base).replace('${CLAUDE_PLUGIN_ROOT}', base);
+  assert.deepEqual(Object.keys(server).sort(), ['args', 'command']); assert.equal(server.command, LAUNCHER_COMMAND);
+  const packageVariable = client === 'codex' ? '${PLUGIN_ROOT}' : '${CLAUDE_PLUGIN_ROOT}';
+  assert.deepEqual(server.args, ['--package-dir', packageVariable, '--entry', 'runtime/bridge/cli.mjs', 'stdio']);
+  const entry = path.join(base, server.args[3]);
   assert.ok(isInside(base, entry)); assert.ok((await stat(entry)).isFile());
-  for (const [source, destination] of [['packages/client/dist', 'runtime/client/dist'], ['packages/bridge', 'runtime/bridge'], ['shared/skills', 'skills'], ['packages/control/dist','runtime/control']]) {
+  for (const [source, destination] of [['packages/client/dist', 'runtime/client/dist'], ['packages/bridge', 'runtime/bridge'], ['packages/provenance', 'runtime/provenance'], ['packages/launcher', 'installer/launcher'], ['packages/provenance', 'installer/provenance'], ['shared/skills', 'skills'], ['packages/control/dist','runtime/control']]) {
     assert.deepEqual(await inventory(path.join(base, destination)), await inventory(path.join(root, source)), `Stale ${client} ${destination}`);
   }
   if(client==='claude-code') assert.deepEqual(await inventory(path.join(base,'agents')),await inventory(path.join(root,'shared/claude-agents')));

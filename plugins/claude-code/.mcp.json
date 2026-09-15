@@ -1,9 +1,12 @@
 {
   "mcpServers": {
     "zenith": {
-      "command": "node",
+      "command": "zenith-plugin-launcher",
       "args": [
-        "${CLAUDE_PLUGIN_ROOT}/runtime/bridge/cli.mjs",
+        "--package-dir",
+        "${CLAUDE_PLUGIN_ROOT}",
+        "--entry",
+        "runtime/bridge/cli.mjs",
         "stdio"
       ]
     }

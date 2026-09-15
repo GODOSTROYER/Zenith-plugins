@@ -1,8 +1,11 @@
 {
   "zenith": {
-    "command": "node",
+    "command": "zenith-plugin-launcher",
     "args": [
-      "${PLUGIN_ROOT}/runtime/bridge/cli.mjs",
+      "--package-dir",
+      "${PLUGIN_ROOT}",
+      "--entry",
+      "runtime/bridge/cli.mjs",
       "stdio"
     ]
   }
