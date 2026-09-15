@@ -7,8 +7,8 @@ import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
-  createPackageManifest, createReleaseManifest, signReleaseManifest,
-  verifyPackageDirectory, verifyArtifactDirectory, ProvenanceError,
+  assertTrustInputPath, compareVersions, createPackageManifest, createReleaseManifest,
+  signReleaseManifest, verifyPackageDirectory, verifyArtifactDirectory, ProvenanceError,
 } from '../packages/provenance/index.mjs';
 import { enforceInstalledProvenance } from '../packages/provenance/consumer.mjs';
 
@@ -98,7 +98,8 @@ test('--help and --version stay usable in an installed package without provenanc
 for (const [label, mutate, expected] of [
   ['manifest', envelope => { envelope.manifest.subject.client = 'claude-code'; }, 'signature_invalid'],
   ['signed timestamp', envelope => { envelope.signedAt = '2020-01-01T00:00:00.000Z'; }, 'signature_invalid'],
-  ['expiry', envelope => { delete envelope.expiresAt; }, 'signature_invalid'],
+  ['extended expiry', envelope => { envelope.expiresAt = '2027-01-01T00:00:00.000Z'; }, 'signature_invalid'],
+  ['removed expiry', envelope => { delete envelope.expiresAt; }, 'expiry_required'],
 ]) test(`tampered ${label} fails closed`, async t => {
   const f = await packageFixture(); t.after(() => rm(f.dir, { recursive: true, force: true }));
   const tampered = structuredClone(f.envelope); mutate(tampered);
@@ -134,7 +135,7 @@ async function releaseFixture() {
   await writeFile(path.join(dir, 'zenith-codex-1.0.0.tgz'), archive);
   await writeFile(path.join(dir, 'release.json'), JSON.stringify({ version: '1.0.0', status: 'development-review-only', artifacts: [{ client: 'codex', filename: 'zenith-codex-1.0.0.tgz', bytes: archive.length, sha256: createHash('sha256').update(archive).digest('hex') }] }));
   const payload = await createReleaseManifest(dir), { pair, trust } = keys();
-  return { dir, trust, envelope: signReleaseManifest(payload, { keyId: 'publisher-2026', privateKey: pair.privateKey, signedAt }) };
+  return { dir, trust, envelope: signReleaseManifest(payload, { keyId: 'publisher-2026', privateKey: pair.privateKey, signedAt, expiresAt: '2026-10-01T00:00:00.000Z' }) };
 }
 
 test('release verification binds release report and rejects unsigned extra archives', async t => {
@@ -158,6 +159,53 @@ test('release verification rejects report drift and archive tampering', async t 
   await writeFile(path.join(f.dir, 'release.json'), JSON.stringify({ version: '1.0.0', artifacts: [{ client: 'codex', filename: 'zenith-codex-1.0.0.tgz', bytes: archive.length, sha256: createHash('sha256').update(archive).digest('hex') }] }));
   await writeFile(path.join(f.dir, 'zenith-codex-1.0.0.tgz'), 'tampered\n');
   await assert.rejects(verifyArtifactDirectory(f.dir, f.envelope, { trustedKeys: f.trust, now: signedAt }), error => code(error) === 'artifact_mismatch');
+});
+
+test('an operator version floor in the trust file refuses a signed downgrade', async t => {
+  const f = await packageFixture(); t.after(() => rm(f.dir, { recursive: true, force: true }));
+  const floor = version => ({ ...f.trust, minimumVersions: { zenith: version } });
+  await verifyPackageDirectory(f.dir, f.envelope, { trustedKeys: floor('0.0.0-fixture'), now: signedAt });
+  await assert.rejects(
+    verifyPackageDirectory(f.dir, f.envelope, { trustedKeys: floor('0.0.1'), now: signedAt }),
+    error => code(error) === 'version_rollback'
+  );
+  await assert.rejects(
+    verifyPackageDirectory(f.dir, f.envelope, { trustedKeys: { ...f.trust, minimumVersions: { zenith: 'not-a-version' } }, now: signedAt }),
+    error => code(error) === 'unsupported_version'
+  );
+  await assert.rejects(
+    verifyPackageDirectory(f.dir, f.envelope, { trustedKeys: { ...f.trust, minimumVersions: [] }, now: signedAt }),
+    error => code(error) === 'invalid_trust'
+  );
+});
+
+test('a caller-supplied minimum version refuses a signed downgrade', async t => {
+  const f = await packageFixture(); t.after(() => rm(f.dir, { recursive: true, force: true }));
+  await assert.rejects(
+    verifyPackageDirectory(f.dir, f.envelope, { trustedKeys: f.trust, now: signedAt, minimumVersion: '1.0.0' }),
+    error => code(error) === 'version_rollback'
+  );
+});
+
+test('semantic version precedence orders prereleases below releases', () => {
+  assert.equal(compareVersions('1.0.0', '1.0.0'), 0);
+  assert.equal(compareVersions('1.0.0', '1.0.0-dev.1'), 1);
+  assert.equal(compareVersions('0.2.0-dev.1', '0.2.0-dev.2'), -1);
+  assert.equal(compareVersions('0.2.0-dev.2', '0.2.0-dev.10'), -1);
+  assert.equal(compareVersions('0.10.0', '0.9.9'), 1);
+  assert.equal(compareVersions('1.0.0-alpha', '1.0.0-alpha.1'), -1);
+  assert.throws(() => compareVersions('1.0', '1.0.0'), error => code(error) === 'unsupported_version');
+});
+
+test('trust input paths must be absolute regular files', async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'zenith trust path '));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'trusted-keys.json');
+  await writeFile(file, '{}\n', { mode: 0o600 });
+  assert.equal((await assertTrustInputPath(file, 'ZENITH_PROVENANCE_TRUST')).path, file);
+  await assert.rejects(assertTrustInputPath('relative.json', 'ZENITH_PROVENANCE_TRUST'), error => code(error) === 'provenance_required');
+  await assert.rejects(assertTrustInputPath(dir, 'ZENITH_PROVENANCE_TRUST'), error => code(error) === 'unsafe_trust_path');
+  assert.equal((await assertTrustInputPath(file, 'ZENITH_PROVENANCE_TRUST', { platform: 'win32' })).permissionsChecked, false);
 });
 
 test('signing rejects an expiry before the signing time', () => {

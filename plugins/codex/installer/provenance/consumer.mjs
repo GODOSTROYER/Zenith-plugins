@@ -10,7 +10,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { verifyPackageDirectory, ProvenanceError } from './index.mjs';
+import { assertTrustInputPath, verifyPackageDirectory, ProvenanceError } from './index.mjs';
 
 const consumerFile = fileURLToPath(import.meta.url);
 const packageRoot = () => path.resolve(path.dirname(consumerFile), '../..');
@@ -20,12 +20,6 @@ const packageRoot = () => path.resolve(path.dirname(consumerFile), '../..');
 // metadata from turning off the activation gate. The source checkout lives
 // below packages/provenance and remains available for development commands.
 const isInstalledRuntime = path.basename(path.dirname(path.dirname(consumerFile))) === 'runtime';
-
-const requiredPath = (value, label) => {
-  if (typeof value !== 'string' || !path.isAbsolute(value))
-    throw new ProvenanceError('provenance_required', `${label} must be an absolute path supplied by the trusted launcher.`);
-  return value;
-};
 
 async function jsonFile(file, label) {
   try { return JSON.parse(await readFile(file, 'utf8')); }
@@ -40,13 +34,14 @@ async function jsonFile(file, label) {
 export async function enforceInstalledProvenance(options = {}) {
   const required = isInstalledRuntime || options.required === true || process.env.ZENITH_REQUIRE_PROVENANCE === '1';
   if (!required) return { required: false };
-  const manifestPath = requiredPath(options.manifestPath ?? process.env.ZENITH_PROVENANCE_MANIFEST, 'ZENITH_PROVENANCE_MANIFEST');
-  const trustPath = requiredPath(options.trustPath ?? process.env.ZENITH_PROVENANCE_TRUST, 'ZENITH_PROVENANCE_TRUST');
+  const manifestPath = (await assertTrustInputPath(options.manifestPath ?? process.env.ZENITH_PROVENANCE_MANIFEST, 'ZENITH_PROVENANCE_MANIFEST')).path;
+  const trust = await assertTrustInputPath(options.trustPath ?? process.env.ZENITH_PROVENANCE_TRUST, 'ZENITH_PROVENANCE_TRUST');
   const envelope = await jsonFile(manifestPath, 'publisher manifest');
-  const trustedKeys = await jsonFile(trustPath, 'publisher trust allowlist');
+  const trustedKeys = await jsonFile(trust.path, 'publisher trust allowlist');
   const result = await verifyPackageDirectory(options.packageDir ?? packageRoot(), envelope, {
     trustedKeys,
     now: options.now,
+    minimumVersion: options.minimumVersion,
   });
-  return { required: true, ...result };
+  return { required: true, trustPathPermissionsChecked: trust.permissionsChecked, ...result };
 }
