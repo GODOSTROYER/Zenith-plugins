@@ -161,7 +161,91 @@ test('the recorded rollback floor never moves backwards', async t => {
   assert.equal((await readLastGood(file, 'zenith')).version, '1.2.0');
   assert.equal((await recordLastGood(file, { manifest: manifest('1.3.0-rc.1'), keyId: 'k', signedAt: 'now' })).recorded, true);
   assert.equal((await readLastGood(file, 'zenith')).version, '1.3.0-rc.1');
-  assert.equal(statePath('/operator/trust/trusted-keys.json', {}), path.join('/operator/trust', STATE_FILENAME));
+  assert.equal((await statePath(path.join(control, 'trusted-keys.json'), { env: {} })).path, file);
+});
+
+/**
+ * An unreadable state file is not a first activation. Treating it as one unset
+ * the rollback floor, so a genuinely signed older package was accepted with
+ * exit 0 and no warning. ENOENT is the only error that means "not recorded yet".
+ *
+ * Both branches are pinned through the injected stat, because a path under a
+ * regular file — the obvious real-world case — reports ENOTDIR on POSIX and
+ * ENOENT on Windows, which is precisely the confusion under test. The POSIX
+ * test below then runs the real thing end to end.
+ */
+test('an unreadable rollback floor fails closed instead of resetting itself', async t => {
+  const control = await mkdtemp(path.join(tmpdir(), 'zenith state unreadable '));
+  t.after(() => rm(control, { recursive: true, force: true }));
+  const file = path.join(control, STATE_FILENAME);
+  const manifest = { manifestVersion: 1, subject: { kind: 'zenith-plugin-package', name: 'zenith', version: '2.0.0' } };
+  const fails = code => async () => { throw Object.assign(new Error(`stat refused: ${code}`), { code }); };
+  const result = { manifest, keyId: 'k', signedAt: 'now' };
+
+  // ENOENT means "no floor recorded yet" on both paths.
+  assert.equal(await readLastGood(file, 'zenith', { stat: fails('ENOENT') }), undefined);
+  assert.equal((await recordLastGood(file, result, { stat: fails('ENOENT') })).recorded, true);
+  assert.equal((await readLastGood(file, 'zenith')).version, '2.0.0');
+
+  // Every other error refuses, including on the best-effort record path: the
+  // write is best effort, reading the floor it could lower is not.
+  for (const code of ['EACCES', 'ENOTDIR', 'EIO', 'EPERM']) {
+    await assert.rejects(readLastGood(file, 'zenith', { stat: fails(code) }),
+      error => error.code === 'state_unreadable' && error.message.includes(code), code);
+    await assert.rejects(recordLastGood(file, result, { stat: fails(code) }),
+      error => error.code === 'state_unreadable', `record must not swallow ${code}`);
+  }
+  await assert.rejects(recordLastGood(file, result, { required: true, stat: fails('EACCES') }),
+    error => error.code === 'state_unreadable');
+});
+
+test('an unreadable rollback floor refuses activation instead of running the package', {
+  timeout: 20000, ...posixOnly,
+}, async t => {
+  const packageDir = await miniPackage(t, '1.0.0');
+  const signed = await signedEnvironment(t, packageDir);
+  const stateDir = await mkdtemp(path.join(tmpdir(), 'zenith state blocked '));
+  t.after(() => rm(stateDir, { recursive: true, force: true }));
+  await writeFile(path.join(stateDir, 'blocker'), 'a regular file, not a directory\n');
+  // ENOTDIR, not ENOENT: the floor cannot be read, so it is not "unrecorded".
+  const env = { ...signed.env, ZENITH_PROVENANCE_STATE: path.join(stateDir, 'blocker', STATE_FILENAME) };
+  const result = await run(['--package-dir', packageDir, '--entry', 'entry.mjs'], env);
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /state_unreadable/);
+  assert.doesNotMatch(result.stdout, /^entry /m, 'the package must not run behind an unreadable floor');
+});
+
+test('ZENITH_PROVENANCE_STATE is checked like the other trust inputs', async t => {
+  const control = await mkdtemp(path.join(tmpdir(), 'zenith state override path '));
+  t.after(() => rm(control, { recursive: true, force: true }));
+  const trustPath = path.join(control, 'trusted-keys.json');
+  await assert.rejects(
+    statePath(trustPath, { env: { ZENITH_PROVENANCE_STATE: 'relative/floor.json' } }),
+    error => error.code === 'provenance_required'
+  );
+  await assert.rejects(
+    statePath(trustPath, { env: { ZENITH_PROVENANCE_STATE: path.join(control, 'missing', 'floor.json') } }),
+    error => error.code === 'provenance_required'
+  );
+  const accepted = await statePath(trustPath, { env: { ZENITH_PROVENANCE_STATE: path.join(control, 'floor.json') } });
+  assert.equal(accepted.path, path.join(control, 'floor.json'));
+  assert.equal(accepted.overridden, true);
+  // Windows reports the check as unverified rather than passing it, exactly as
+  // assertTrustInputPath does for the trust file itself.
+  assert.equal(accepted.permissionsChecked, process.platform !== 'win32');
+});
+
+test('an override in a world-writable directory is refused', posixOnly, async t => {
+  const open = await mkdtemp(path.join(tmpdir(), 'zenith open state '));
+  t.after(() => rm(open, { recursive: true, force: true }));
+  await chmod(open, 0o777);
+  const packageDir = await miniPackage(t, '1.0.0');
+  const signed = await signedEnvironment(t, packageDir);
+  const env = { ...signed.env, ZENITH_PROVENANCE_STATE: path.join(open, STATE_FILENAME) };
+  const result = await run(['--package-dir', packageDir, '--entry', 'entry.mjs'], env);
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /unsafe_trust_path/);
+  assert.match(result.stderr, /ZENITH_PROVENANCE_STATE/);
 });
 
 test('a world-writable trust file is refused', posixOnly, async t => {

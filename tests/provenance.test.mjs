@@ -95,6 +95,39 @@ test('--help and --version stay usable in an installed package without provenanc
   assert.equal(version.stdout.trim(), expected);
 });
 
+/**
+ * The control environment is inherited, not chosen per invocation. Help used to
+ * be printed after the ZENITH_API_VERSION / ZENITH_PROFILES_FILE routing, so on
+ * a machine where either was set, `--help` imported the whole control module
+ * graph into a process the activation gate had not verified.
+ *
+ * The proof is the package itself: runtime/control is deleted from the copy
+ * under test, so an invocation that still reaches the dynamic import fails with
+ * ERR_MODULE_NOT_FOUND and a non-zero exit instead of printing usage. The
+ * profiles file is deliberately unparseable, and the assertions pin that
+ * neither the control usage text nor any profile error reached stdout.
+ */
+test('--help is static text even with the control environment inherited', async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'zenith provenance ungated help '));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await cp(path.resolve('plugins/codex'), dir, { recursive: true });
+  await rm(path.join(dir, 'runtime/control'), { recursive: true, force: true });
+  const profiles = path.join(dir, 'profiles.json');
+  await writeFile(profiles, 'this is not a profiles document');
+  const env = { ...process.env, ZENITH_API_VERSION: '2', ZENITH_PROFILES_FILE: profiles };
+  delete env.ZENITH_PROVENANCE_MANIFEST; delete env.ZENITH_PROVENANCE_TRUST;
+  for (const flag of ['--help', '-h', 'help']) {
+    const help = await run(process.execPath, [path.join(dir, 'runtime/bridge/cli.mjs'), flag], { env, timeout: 10_000 });
+    assert.match(help.stdout, /^Zenith connector:/, `${flag} must print the bridge usage`);
+    assert.doesNotMatch(help.stdout, /Zenith v2:/, `${flag} must not reach the control CLI`);
+    assert.equal(help.stderr, '', `${flag} must not report a profile or module failure`);
+  }
+  // The sentinel is only meaningful if the generated package really ships the
+  // module the routing imports, and the copy under test really lost it.
+  await assert.doesNotReject(readFile(path.resolve('plugins/codex/runtime/control/cli.mjs')));
+  await assert.rejects(readFile(path.join(dir, 'runtime/control/cli.mjs')), error => error.code === 'ENOENT');
+});
+
 for (const [label, mutate, expected] of [
   ['manifest', envelope => { envelope.manifest.subject.client = 'claude-code'; }, 'signature_invalid'],
   ['signed timestamp', envelope => { envelope.signedAt = '2020-01-01T00:00:00.000Z'; }, 'signature_invalid'],
