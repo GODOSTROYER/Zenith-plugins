@@ -13,11 +13,12 @@ export async function signedPackageEnvironment(packageDir) {
   };
   const manifest = signReleaseManifest(await createPackageManifest(packageDir), {
     keyId: 'test-publisher', privateKey, signedAt: new Date(Date.now() - 1000).toISOString(),
+    expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
   });
   const manifestPath = path.join(control, 'publisher-manifest.json');
   const trustPath = path.join(control, 'trusted-keys.json');
-  await writeFile(manifestPath, `${JSON.stringify(manifest)}\n`);
-  await writeFile(trustPath, `${JSON.stringify(trust)}\n`);
+  await writeFile(manifestPath, `${JSON.stringify(manifest)}\n`, { mode: 0o600 });
+  await writeFile(trustPath, `${JSON.stringify(trust)}\n`, { mode: 0o600 });
   return {
     control,
     env: {
