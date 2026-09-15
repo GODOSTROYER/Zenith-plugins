@@ -28,8 +28,16 @@ for (const client of ['codex', 'claude-code']) {
   await cp(path.join(root,'packages/control/dist'),path.join(target,'runtime/control'),{recursive:true});
   await cp(path.join(root, 'shared/skills'), path.join(target, 'skills'), { recursive: true });
   if(client==='claude-code') await cp(path.join(root,'shared/claude-agents'),path.join(target,'agents'),{recursive:true});
+  // The launcher is shipped as an installer input, not used from this
+  // package-owned path at runtime. A trusted installer must copy it and its
+  // provenance verifier to an absolute location outside the package before
+  // registering the native client. Keeping both files in the signed package
+  // makes that handoff reproducible without making the package its own trust
+  // root.
+  await cp(path.join(root, 'packages/launcher'), path.join(target, 'installer/launcher'), { recursive: true });
+  await cp(path.join(root, 'packages/provenance'), path.join(target, 'installer/provenance'), { recursive: true });
   await json(path.join(target, 'package.json'), { name: 'zenith', version, private: true, type: 'module', engines: { node: '>=22.16.0' },
-    files: [manifestDir, '.mcp.json', 'runtime', 'skills', ...(client==='claude-code'?['agents']:[]), 'README.md', 'integrity.json'] });
+    files: [manifestDir, '.mcp.json', 'runtime', 'installer', 'skills', ...(client==='claude-code'?['agents']:[]), 'README.md', 'integrity.json'] });
   const manifest = { name: 'zenith', version, description: 'Zenith inspection, exact browser-reviewed changes, deployment and supported source publishing. Writes require explicit v2 enablement.',
     author: { name: 'GODOSTROYER' }, skills: './skills/', mcpServers: './.mcp.json' };
   await json(path.join(target, manifestDir, 'plugin.json'), manifest);

@@ -21,7 +21,7 @@ for (const client of ['codex', 'claude-code']) {
   assert.deepEqual(server.args, ['--package-dir', packageVariable, '--entry', 'runtime/bridge/cli.mjs', 'stdio']);
   const entry = path.join(base, server.args[3]);
   assert.ok(isInside(base, entry)); assert.ok((await stat(entry)).isFile());
-  for (const [source, destination] of [['packages/client/dist', 'runtime/client/dist'], ['packages/bridge', 'runtime/bridge'], ['packages/provenance', 'runtime/provenance'], ['shared/skills', 'skills'], ['packages/control/dist','runtime/control']]) {
+  for (const [source, destination] of [['packages/client/dist', 'runtime/client/dist'], ['packages/bridge', 'runtime/bridge'], ['packages/provenance', 'runtime/provenance'], ['packages/launcher', 'installer/launcher'], ['packages/provenance', 'installer/provenance'], ['shared/skills', 'skills'], ['packages/control/dist','runtime/control']]) {
     assert.deepEqual(await inventory(path.join(base, destination)), await inventory(path.join(root, source)), `Stale ${client} ${destination}`);
   }
   if(client==='claude-code') assert.deepEqual(await inventory(path.join(base,'agents')),await inventory(path.join(root,'shared/claude-agents')));
