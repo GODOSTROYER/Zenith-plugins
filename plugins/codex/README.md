@@ -15,6 +15,6 @@ For v1 use ZENITH_CONFIG_FILE. For v2 use explicit ZENITH_PROFILES_FILE and name
 
 The setup command creates a new private profile and refuses overwrites. It does not issue credentials or verify a backend. Doctor checks authenticated context, scope and capabilities, not infrastructure health. Run the stdio command through an MCP client.
 
-Production launchers must set ZENITH_REQUIRE_PROVENANCE=1 and provide absolute ZENITH_PROVENANCE_MANIFEST and ZENITH_PROVENANCE_TRUST paths from the trusted installer. The runtime verifies the signed Ed25519 publisher envelope and exact package bytes before opening the MCP/control surface; missing or invalid inputs fail closed.
+Production installers/launchers must provide absolute ZENITH_PROVENANCE_MANIFEST and ZENITH_PROVENANCE_TRUST paths from the trusted installer. Packaged activation always verifies the signed Ed25519 publisher envelope and exact package bytes before opening the MCP/control surface; missing or invalid inputs fail closed. ZENITH_REQUIRE_PROVENANCE=0 cannot disable this packaged gate.
 
 Revoke the credential in Zenith before uninstalling. Replace this entire directory on upgrades; do not mix runtime versions. integrity.json records file hashes for reproducibility, not a publisher signature.

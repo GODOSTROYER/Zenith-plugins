@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync } from 'node:crypto';
-import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, symlink, writeFile, cp } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -19,6 +21,7 @@ function keys() {
   };
 }
 const code = error => error instanceof ProvenanceError ? error.code : error?.code;
+const run = promisify(execFile);
 
 async function packageFixture() {
   const dir = await mkdtemp(path.join(tmpdir(), 'zenith provenance package '));
@@ -59,6 +62,18 @@ test('the installed-package execution gate verifies the exact package bytes', as
   await assert.rejects(
     enforceInstalledProvenance({ required: true, packageDir: f.dir, manifestPath, trustPath, now: signedAt }),
     error => code(error) === 'artifact_mismatch'
+  );
+});
+
+test('a generated plugin cannot disable its activation gate with the environment', async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'zenith provenance activation '));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await cp(path.resolve('plugins/codex'), dir, { recursive: true });
+  await assert.rejects(
+    run(process.execPath, [path.join(dir, 'runtime/bridge/cli.mjs'), '--help'], {
+      env: { ...process.env, ZENITH_REQUIRE_PROVENANCE: '0', ZENITH_URL: 'https://zenith.example', ZENITH_WORKSPACE_ID: 'ws', ZENITH_TOKEN: `za_${'X'.repeat(43)}` },
+    }),
+    error => error.code === 1 && error.stdout === '' && /startup_failed/.test(error.stderr)
   );
 });
 

@@ -4,7 +4,7 @@
   "files": {
     ".codex-plugin/plugin.json": "f8ea1e68926f2129391356a053f53d22732cccd0b7f4f8d0ec8486800f765605",
     ".mcp.json": "bec9b64ab034236b20e6734b50899ca56bb192ef302c538537dbd63cf65b3ee9",
-    "README.md": "bd1838a6ad42aa4c37a547cd6a40716753ebc368a1d5297ec17bc5bd7d8d2914",
+    "README.md": "410ebf994293d7e79b2507f9aabfdf2030632989123a6047bf9965b91f1c6e74",
     "package.json": "b6fbd859b8a226ae6531afbc5559c25f4ef6ec78ca86659b48257183d60ff02b",
     "runtime/bridge/cli.mjs": "cdea94ebbb615be0c6e4dea7c96b805b847cf8a0fd8abae8c0e40fd2113224f8",
     "runtime/bridge/config.d.mts": "bdd5fb4362ee61c0d2bcffd9829e7169905061c0e7981089ef149e1cb9866e11",
@@ -18,7 +18,7 @@
     "runtime/control/THIRD_PARTY_NOTICES.txt": "d466a92f36e5a3b0d1e705377be47ea4bbdac1c676f199331af9e7701290869f",
     "runtime/control/cli.mjs": "22e04fb922b8779e5505989f4fc664464f2593fa1380b23f4b412b259033259a",
     "runtime/control/components.json": "b11a271d2674a3784d9c23170e0394590a98a7311d2e70f227971011f509981a",
-    "runtime/provenance/consumer.mjs": "d1f728aade46c001e0a66dfba5961ed7b50e832ab2d692c3c572d4cdcb0e393b",
+    "runtime/provenance/consumer.mjs": "288dc43052d81ac0b8c378802d71a673803a0bc4a02ebc00e8d4cf9e2be69b75",
     "runtime/provenance/index.mjs": "d82659a0488b40354b29856c304b1b8272d2d125dbde263bffe238076cec3392",
     "skills/connect/SKILL.md": "bdab45d7b2af3d634dfaa78ab93425037b482a7a1dbdcd3a69baec751ce52fe8",
     "skills/deploy/SKILL.md": "ac8096898a88dcccd33d871691221d78f027e558599ce8f23816fd92f1c0d563",

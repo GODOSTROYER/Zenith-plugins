@@ -7,6 +7,7 @@ import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { smoke } from '../scripts/live-smoke.mjs';
 import { writeProfile, configuredClient } from '../packages/bridge/config.mjs';
+import { signedPackageEnvironment } from './provenance-fixture.mjs';
 const firstToken = `za_${'E'.repeat(43)}`, secondToken = `za_${'F'.repeat(43)}`;
 async function fixture(t) {
   const calls = []; let expectedToken = firstToken;
@@ -28,7 +29,14 @@ async function fixture(t) {
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
   const env = { ...process.env }; for (const key of Object.keys(env)) if (key.startsWith('ZENITH_')) delete env[key];
-  Object.assign(env, { ZENITH_LIVE_TEST: '1', ZENITH_URL: `http://127.0.0.1:${server.address().port}`, ZENITH_ALLOW_LOOPBACK_HTTP: '1', ZENITH_WORKSPACE_ID: 'ws', ZENITH_TOKEN: firstToken });
+  const codexProvenance = await signedPackageEnvironment(path.resolve('plugins/codex'));
+  const claudeProvenance = await signedPackageEnvironment(path.resolve('plugins/claude-code'));
+  t.after(codexProvenance.cleanup); t.after(claudeProvenance.cleanup);
+  Object.assign(env, { ZENITH_LIVE_TEST: '1', ZENITH_URL: `http://127.0.0.1:${server.address().port}`, ZENITH_ALLOW_LOOPBACK_HTTP: '1', ZENITH_WORKSPACE_ID: 'ws', ZENITH_TOKEN: firstToken,
+    ZENITH_PROVENANCE_MANIFEST_CODEX: codexProvenance.env.ZENITH_PROVENANCE_MANIFEST,
+    ZENITH_PROVENANCE_TRUST_CODEX: codexProvenance.env.ZENITH_PROVENANCE_TRUST,
+    ZENITH_PROVENANCE_MANIFEST_CLAUDE_CODE: claudeProvenance.env.ZENITH_PROVENANCE_MANIFEST,
+    ZENITH_PROVENANCE_TRUST_CLAUDE_CODE: claudeProvenance.env.ZENITH_PROVENANCE_TRUST });
   return { env, calls, rotate: () => { expectedToken = secondToken; } };
 }
 test('live smoke refuses absent opt-in instead of reporting a skipped pass', async () => {

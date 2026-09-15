@@ -54,10 +54,15 @@ node scripts/provenance.mjs verify-release \
 
 Verification requires the explicit version-1 allowlist, authenticates the signed envelope, checks key status and validity, binds the release report to the signed archive set, and checks every archive's byte length and SHA-256. Unsigned, unknown, revoked, expired, tampered, missing, extra, or mismatched artifacts fail closed. `sign-package`/`verify-package` provide the equivalent gate for an already extracted package; do not execute it before that check.
 
-## Runtime execution gate
+## Runtime activation gate
 
 The self-contained bridge repeats the package check immediately before opening
-its MCP/control surface when the trusted launcher sets:
+its MCP/control surface. The generated plugin runtime is copied below its
+package's `runtime/provenance/` boundary and requires the gate there;
+`ZENITH_REQUIRE_PROVENANCE=0` cannot disable it. A source checkout lives below
+`packages/provenance/` and remains usable for development without an envelope.
+
+The trusted installer or launcher must provide:
 
 ```bash
 export ZENITH_REQUIRE_PROVENANCE=1
@@ -67,10 +72,15 @@ export ZENITH_PROVENANCE_TRUST=/absolute/path/trusted-keys.json
 
 Both paths must be absolute and are never read from package content. A missing,
 invalid, untrusted, expired, tampered or mismatched package exits before any
-connection or tool is opened. Development checkouts intentionally leave the
-flag unset; a production installer/marketplace launcher must set it and pass
-the signed envelope and operator trust file. The generated plugin includes the
-gate implementation under `runtime/provenance/` and the bridge calls it on
-every startup.
+connection or tool is opened. The generated plugin includes the gate
+implementation under `runtime/provenance/` and the bridge calls it on every
+startup.
+
+The checked-in Codex and Claude marketplace descriptors contain only source,
+manifest and presentation metadata; this repository has no installer callback,
+activation hook, or field for injecting operator trust paths. Therefore the
+archive verification step before extraction/registration remains an explicit
+trusted-installer responsibility, and the runtime gate is the repository-native
+activation enforcement. No marketplace-specific speculative wiring is added.
 
 The signed envelope covers its algorithm, key ID, signing time, expiry, and manifest. Key rotation requires distributing the new public key through the operator's trusted configuration channel. Mark an old key `revoked` after migration; a valid old signature is then rejected. No trust key is embedded in this repository, and the repository does not silently alter Codex/Claude marketplace behavior or publish artifacts.

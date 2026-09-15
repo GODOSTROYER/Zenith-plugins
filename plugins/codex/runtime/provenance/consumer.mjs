@@ -12,7 +12,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { verifyPackageDirectory, ProvenanceError } from './index.mjs';
 
-const packageRoot = () => fileURLToPath(new URL('../../', import.meta.url));
+const consumerFile = fileURLToPath(import.meta.url);
+const packageRoot = () => path.resolve(path.dirname(consumerFile), '../..');
+
+// The generated runtime is copied below <package>/runtime/provenance. This
+// immutable module-location distinction keeps deleting or changing package
+// metadata from turning off the activation gate. The source checkout lives
+// below packages/provenance and remains available for development commands.
+const isInstalledRuntime = path.basename(path.dirname(path.dirname(consumerFile))) === 'runtime';
 
 const requiredPath = (value, label) => {
   if (typeof value !== 'string' || !path.isAbsolute(value))
@@ -26,12 +33,12 @@ async function jsonFile(file, label) {
 }
 
 /**
- * Verify an installed package when the launcher enables the gate.
- * Development checkouts remain usable without a release envelope; production
- * launchers set ZENITH_REQUIRE_PROVENANCE=1 and must provide both files.
+ * Verify an installed package before activation. Development checkouts remain
+ * usable without a release envelope; generated plugin packages always require
+ * one, even if a caller sets ZENITH_REQUIRE_PROVENANCE=0.
  */
 export async function enforceInstalledProvenance(options = {}) {
-  const required = options.required ?? process.env.ZENITH_REQUIRE_PROVENANCE === '1';
+  const required = isInstalledRuntime || options.required === true || process.env.ZENITH_REQUIRE_PROVENANCE === '1';
   if (!required) return { required: false };
   const manifestPath = requiredPath(options.manifestPath ?? process.env.ZENITH_PROVENANCE_MANIFEST, 'ZENITH_PROVENANCE_MANIFEST');
   const trustPath = requiredPath(options.trustPath ?? process.env.ZENITH_PROVENANCE_TRUST, 'ZENITH_PROVENANCE_TRUST');
