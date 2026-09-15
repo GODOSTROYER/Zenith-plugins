@@ -13,15 +13,16 @@ import { STATE_FILENAME, readLastGood, recordLastGood, statePath } from '../pack
 const launcher = path.resolve('packages/launcher/cli.mjs');
 const posixOnly = { skip: process.platform === 'win32' ? 'POSIX file modes; Windows ACLs are reported unverified instead.' : false };
 
-function run(args, env) {
+function runAt(binary, args, env, cwd) {
   return new Promise(resolve => {
-    const child = spawn(process.execPath, [launcher, ...args], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [binary, ...args], { env, cwd, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '', stderr = '';
     child.stdout.on('data', bytes => { stdout += bytes; });
     child.stderr.on('data', bytes => { stderr += bytes; });
     child.once('exit', (code, signal) => resolve({ code, signal, stdout, stderr }));
   });
 }
+const run = (args, env) => runAt(launcher, args, env, undefined);
 
 /**
  * A minimal signed package: a descriptor registering the launcher, one entry
@@ -181,6 +182,36 @@ test('a trust file in a world-writable directory without the sticky bit is refus
   const result = await run(['--package-dir', packageDir, '--entry', 'entry.mjs'], signed.env);
   assert.notEqual(result.code, 0);
   assert.match(result.stderr, /unsafe_trust_path/);
+});
+
+test('the repository publishes the launcher as the bin the descriptors name', { timeout: 20000 }, async t => {
+  const { bin } = JSON.parse(await readFile(path.resolve('package.json'), 'utf8'));
+  assert.deepEqual(Object.keys(bin), ['zenith-plugin-launcher']);
+  assert.equal(path.resolve(bin['zenith-plugin-launcher']), launcher);
+  const descriptor = JSON.parse(await readFile(path.resolve('plugins/codex/.mcp.json'), 'utf8'));
+  assert.equal(descriptor.zenith.command, 'zenith-plugin-launcher');
+
+  // An installed bin runs from a working directory unrelated to the repository.
+  const packageDir = await miniPackage(t, '1.0.0');
+  const signed = await signedEnvironment(t, packageDir);
+  const elsewhere = await mkdtemp(path.join(tmpdir(), 'zenith foreign cwd '));
+  t.after(() => rm(elsewhere, { recursive: true, force: true }));
+  const result = await runAt(launcher, ['--package-dir', packageDir, '--entry', 'entry.mjs'], signed.env, elsewhere);
+  assert.equal(result.code, 0, result.stderr);
+});
+
+test('the launcher resolves its verifier through an npm-style bin symlink', {
+  timeout: 20000, skip: process.platform === 'win32' ? 'npm writes a .cmd shim on Windows; creating symlinks needs extra privileges.' : false,
+}, async t => {
+  const { symlink } = await import('node:fs/promises');
+  const shimDir = await mkdtemp(path.join(tmpdir(), 'zenith bin '));
+  t.after(() => rm(shimDir, { recursive: true, force: true }));
+  const shim = path.join(shimDir, 'zenith-plugin-launcher');
+  await symlink(launcher, shim);
+  const packageDir = await miniPackage(t, '1.0.0');
+  const signed = await signedEnvironment(t, packageDir);
+  const result = await runAt(shim, ['--package-dir', packageDir, '--entry', 'entry.mjs'], signed.env, shimDir);
+  assert.equal(result.code, 0, result.stderr);
 });
 
 test('descriptor binding accepts either descriptor wrapper and normalises entry spellings', async t => {
