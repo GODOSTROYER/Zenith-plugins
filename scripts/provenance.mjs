@@ -1,13 +1,18 @@
 #!/usr/bin/env node
 /** Explicit operator tool for signing and verifying plugin provenance. */
-import { createPrivateKey } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { createPrivateKey, generateKeyPairSync } from 'node:crypto';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { isMain } from '../packages/bridge/entrypoint.mjs';
 import {
   createPackageManifest, createReleaseManifest, signReleaseManifest,
   verifyPackageDirectory, verifyArtifactDirectory, ProvenanceError,
 } from '../packages/provenance/index.mjs';
+
+const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 
 export const DEFAULT_EXPIRY_DAYS = 90;
 
@@ -16,8 +21,11 @@ const usage = `Usage:
   node scripts/provenance.mjs sign-release --artifacts DIR --key-id ID --private-key FILE --output FILE [--expires ISO]
   node scripts/provenance.mjs verify-package --package DIR --manifest FILE --trust FILE
   node scripts/provenance.mjs verify-release --artifacts DIR --manifest FILE --trust FILE
+  node scripts/provenance.mjs selftest [--package DIR]
 
-Every envelope carries an expiry. Without --expires the signature expires ${DEFAULT_EXPIRY_DAYS} days after signing.`;
+Every envelope carries an expiry. Without --expires the signature expires ${DEFAULT_EXPIRY_DAYS} days after signing.
+selftest runs sign-package, verify-package and a launcher activation with a throwaway key created inside a
+temporary directory and deleted afterwards. It never touches an operator key and never publishes.`;
 
 function options(args) {
   const result = {};
@@ -55,9 +63,62 @@ async function signTo(output, payload, values) {
   return result;
 }
 
+function launch(args, env) {
+  return new Promise(resolve => {
+    const child = spawn(process.execPath, [path.join(repositoryRoot, 'packages/launcher/cli.mjs'), ...args], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '', stderr = '';
+    child.stdout.on('data', bytes => { stdout += bytes; });
+    child.stderr.on('data', bytes => { stderr += bytes; });
+    child.once('exit', code => resolve({ code, stdout, stderr }));
+  });
+}
+
+/**
+ * Run the documented operator flow end to end — sign-package, verify-package,
+ * then activation through the trusted launcher — against a throwaway Ed25519
+ * key generated inside a temporary directory that is deleted afterwards. This
+ * is the provenance check the offline verify lane can actually run: the real
+ * `provenance:verify` needs release artifacts and the operator's own trust
+ * file, neither of which exists in a checkout or in CI.
+ */
+export async function selftest({ packageDir = path.join(repositoryRoot, 'plugins/codex'), entry = 'runtime/bridge/cli.mjs' } = {}) {
+  const work = await mkdtemp(path.join(tmpdir(), 'zenith provenance selftest '));
+  const steps = [];
+  try {
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+    const keyFile = path.join(work, 'throwaway.private.pem');
+    const trustFile = path.join(work, 'trusted-keys.json');
+    const manifestFile = path.join(work, 'package-manifest.json');
+    await writeFile(keyFile, privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 });
+    await writeFile(trustFile, `${JSON.stringify({ version: 1, keys: [{ id: 'selftest', publicKey: publicKey.export({ type: 'spki', format: 'pem' }), status: 'active' }] }, null, 2)}\n`, { mode: 0o600 });
+
+    const signed = await main(['sign-package', '--package', packageDir, '--key-id', 'selftest', '--private-key', keyFile, '--output', manifestFile]);
+    steps.push({ step: 'sign-package', subject: signed.subject, expiresAt: signed.expiresAt });
+    const verified = await main(['verify-package', '--package', packageDir, '--manifest', manifestFile, '--trust', trustFile]);
+    steps.push({ step: 'verify-package', keyId: verified.keyId });
+
+    const activation = await launch(['--package-dir', path.resolve(packageDir), '--entry', entry, '--help'], {
+      ...process.env, ZENITH_PROVENANCE_MANIFEST: manifestFile, ZENITH_PROVENANCE_TRUST: trustFile,
+    });
+    if (activation.code !== 0) throw new ProvenanceError('selftest_failed', `Launcher activation failed with exit ${activation.code}: ${activation.stderr.trim()}`);
+    steps.push({ step: 'launch', exitCode: activation.code });
+
+    const refused = await main(['verify-release', '--artifacts', work, '--manifest', manifestFile, '--trust', trustFile]).then(() => undefined, error => error);
+    if (!(refused instanceof ProvenanceError) || refused.code !== 'subject_mismatch')
+      throw new ProvenanceError('selftest_failed', 'A package envelope must be refused with subject_mismatch by the release gate.');
+    steps.push({ step: 'release-gate-rejects-package-envelope', code: refused.code });
+    return { status: 'selftest-passed', packageDir: path.resolve(packageDir), steps };
+  } finally { await rm(work, { recursive: true, force: true }); }
+}
+
 async function main(args = process.argv.slice(2)) {
   const [command, ...rest] = args;
   const values = options(rest);
+  if (command === 'selftest') {
+    const result = await selftest(values.package ? { packageDir: values.package } : {});
+    console.log(JSON.stringify(result));
+    return result;
+  }
   if (command === 'sign-package') {
     required(values, 'package', 'key-id', 'private-key', 'output');
     return signTo(values.output, await createPackageManifest(values.package, { client: values.client }), values);
