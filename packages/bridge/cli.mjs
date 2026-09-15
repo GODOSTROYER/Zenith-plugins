@@ -24,7 +24,8 @@ const HELP_COMMANDS = new Set(['--help', '-h', 'help']);
 const VERSION_COMMANDS = new Set(['--version', 'version']);
 const UNGATED_COMMANDS = new Set([...HELP_COMMANDS, ...VERSION_COMMANDS]);
 
-const HELP_TEXT = 'Zenith connector: stdio | doctor | setup | --help | --version\n'
+const HELP_TEXT = 'Zenith connector: login | logout | status | stdio | doctor | setup | --help | --version\n'
+  + 'Link a Zenith account in the browser: login [--url ORIGIN] [--name NAME] [--no-browser] [--json]. It prints a URL and a code, waits for the approval, then stores the issued credential. logout removes the local credential; revoke in the browser at ORIGIN/integrations.\n'
   + 'Use ZENITH_CONFIG_FILE, or explicit ZENITH_URL / ZENITH_WORKSPACE_ID / ZENITH_TOKEN_FILE (or ZENITH_TOKEN).\n'
   + 'Setup: setup --output ABSOLUTE_PATH --url TRUSTED_ORIGIN --workspace ID --token-file ABSOLUTE_PATH [--project ID] [--environment ID] [--allow-loopback-http]\n'
   + 'Setup creates a new private profile, never a credential or deployment. No implicit repository configuration.\n'
@@ -126,7 +127,9 @@ export async function main(args = process.argv.slice(2)) {
   if (HELP_COMMANDS.has(command)) { console.log(HELP_TEXT); return; }
   if (!UNGATED_COMMANDS.has(command)) await enforceInstalledProvenance();
   if (VERSION_COMMANDS.has(command)) { console.log(VERSION); return; }
-  if (process.env.ZENITH_API_VERSION === '2' || process.env.ZENITH_PROFILES_FILE || ['profile','source','remote-config'].includes(args[0])) {
+  // login, logout and status join this list so they work on a machine with no
+  // Zenith environment at all, which is the entire point of a browser link.
+  if (process.env.ZENITH_API_VERSION === '2' || process.env.ZENITH_PROFILES_FILE || ['login','logout','status','profile','source','remote-config'].includes(args[0])) {
     const { main: controlMain } = await import('../control/cli.mjs'); await controlMain([...args]); return;
   }
   if (process.env.ZENITH_API_VERSION && process.env.ZENITH_API_VERSION !== '1') throw new ClientError('unsupported_version', 'Select API version 1 or 2 explicitly.');

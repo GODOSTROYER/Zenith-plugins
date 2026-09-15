@@ -39,6 +39,20 @@ export async function updateProfiles(file:string,change:(current:Profiles|undefi
     await rename(temporary,file);
   }finally{await handle?.close();await unlink(temporary).catch(()=>{});await lock.close();await unlink(`${file}.lock`);}
 }
+/**
+ * The `profile add` body, factored out so `login` can persist a profile it
+ * already validated without shelling through the flag parser. It never
+ * overwrites: the existence check happens inside the same locked, atomic
+ * update that writes the file, so two concurrent logins cannot both win.
+ */
+export async function writeProfile(file:string,profileName:string,value:unknown):Promise<{created:string;active:string}>{
+  const selected=name.parse(profileName),entry=definition.parse(value);let active=selected;
+  await updateProfiles(file,doc=>{
+    if(doc&&Object.hasOwn(doc.profiles,selected))throw new ClientError('profile_exists','Choose a new profile name; this never overwrites an existing destination.');
+    active=doc?.active??selected;return {version:2,active,profiles:{...doc?.profiles,[selected]:entry}};
+  });
+  return {created:selected,active};
+}
 const conflicting=['ZENITH_URL','ZENITH_WORKSPACE_ID','ZENITH_PROJECT_ID','ZENITH_ENVIRONMENT_ID','ZENITH_CONFIG_FILE','ZENITH_TOKEN_FILE','ZENITH_TOKEN_VAULT','ZENITH_TOKEN_KEYCHAIN_SERVICE','ZENITH_TOKEN_KEYCHAIN_ACCOUNT','ZENITH_CREDENTIAL_KIND','ZENITH_ALLOW_WRITES','ZENITH_ALLOW_LOOPBACK_HTTP'];
 export async function controlClient(env:NodeJS.ProcessEnv=process.env):Promise<ControlClient>{
   let profile:Profile;
@@ -79,7 +93,7 @@ export async function profileCommand(args:string[]):Promise<unknown>{
   if(verb==='remove'){await updateProfiles(file,doc=>{if(!doc||doc.active===selected)throw new ClientError('active_profile','Select a different active profile before removing this one.');const profiles={...doc.profiles};delete profiles[selected];return {...doc,profiles};});return {removed:selected,credentialRevoked:false};}
   if(verb!=='add')throw new ClientError('usage','Use profile add, list, use or remove.');
   const credential=fields['--token-file']?{kind:'file' as const,path:fields['--token-file']}:keychainConfigured?{kind:'keychain' as const,service:fields['--keychain-service']!,account:fields['--keychain-account']!}:{kind:'environment' as const,variable:fields['--token-env']??'ZENITH_TOKEN'};
-  const p=definition.parse({origin:fields['--url'],scope:{version:1,workspaceId:fields['--workspace'],...(fields['--project']?{projectId:fields['--project']}:{}),...(fields['--environment']?{environmentId:fields['--environment']}:{})},allowLoopbackHttp:fields['--loopback']==='1',allowWrites:fields['--writes']==='1',credentialKind:fields['--credential-kind']??'opaque',credential});
-  await updateProfiles(file,doc=>{if(doc&&Object.hasOwn(doc.profiles,selected))throw new ClientError('profile_exists','Choose a new profile name; add never overwrites an existing destination.');return {version:2,active:doc?.active??selected,profiles:{...doc?.profiles,[selected]:p}};});
-  return {created:selected,active:(await loadProfiles(file)).active,authenticated:false,next:'Set ZENITH_API_VERSION=2 and ZENITH_PROFILES_FILE, then run doctor. Restart the agent to change targets.'};
+  const p={origin:fields['--url'],scope:{version:1,workspaceId:fields['--workspace'],...(fields['--project']?{projectId:fields['--project']}:{}),...(fields['--environment']?{environmentId:fields['--environment']}:{})},allowLoopbackHttp:fields['--loopback']==='1',allowWrites:fields['--writes']==='1',credentialKind:fields['--credential-kind']??'opaque',credential};
+  const written=await writeProfile(file,selected,p);
+  return {created:written.created,active:written.active,authenticated:false,next:'Set ZENITH_API_VERSION=2 and ZENITH_PROFILES_FILE, then run doctor. Restart the agent to change targets.'};
 }

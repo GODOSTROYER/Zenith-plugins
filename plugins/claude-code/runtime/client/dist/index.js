@@ -1,5 +1,13 @@
 export const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2024-11-05"];
 export const CONTRACT_VERSION = 1;
+/**
+ * Wire version of the browser link (device) flow. It is deliberately separate
+ * from CONTRACT_VERSION and CONTROL_VERSION: the link endpoints mint a
+ * credential and are reached before one exists, so they version independently
+ * of the authenticated tool contract. The connector sends this integer and the
+ * backend hard-codes the same one.
+ */
+export const LINK_PROTOCOL_VERSION = 1;
 export const MAX_REQUEST_BYTES = 65_536;
 export const MAX_RESPONSE_BYTES = 262_144;
 const readNames = Object.freeze([
