@@ -3,9 +3,19 @@
 import { isMain } from './entrypoint.mjs';
 import { ClientError, validateRequest, errorResponse, MAX_REQUEST_BYTES } from '../client/dist/index.js';
 import { configuredClient, setup } from './config.mjs';
-import { inspectConnection } from './doctor.mjs';
+import { inspectConnection, VERSION } from './doctor.mjs';
 import { enforceInstalledProvenance } from '../provenance/consumer.mjs';
+import { ProvenanceError } from '../provenance/index.mjs';
 export { readCredential } from './config.mjs';
+
+/**
+ * Commands that print static text, open no connection, read no credential and
+ * reach neither the MCP surface nor the control CLI's client. They run before
+ * the activation gate so an operator can read an installed package's usage and
+ * version while the trusted launcher's provenance inputs are still being
+ * configured. Everything else stays behind the gate.
+ */
+const UNGATED_COMMANDS = new Set(['--help', 'help', '--version', 'version']);
 
 export async function serve(client, { input = process.stdin, output = process.stdout, signal } = {}) {
   const active = new Map(); let buffer = Buffer.alloc(0), discarding = false, state = 'new';
@@ -91,16 +101,17 @@ export async function serve(client, { input = process.stdin, output = process.st
   }
 }
 export async function main(args = process.argv.slice(2)) {
-  await enforceInstalledProvenance();
+  if (!UNGATED_COMMANDS.has(args[0] ?? '')) await enforceInstalledProvenance();
+  if (['--version', 'version'].includes(args[0])) { console.log(VERSION); return; }
   if (process.env.ZENITH_API_VERSION === '2' || process.env.ZENITH_PROFILES_FILE || ['profile','source','remote-config'].includes(args[0])) {
     const { main: controlMain } = await import('../control/cli.mjs'); await controlMain([...args]); return;
   }
   if (process.env.ZENITH_API_VERSION && process.env.ZENITH_API_VERSION !== '1') throw new ClientError('unsupported_version', 'Select API version 1 or 2 explicitly.');
   if (['--help', 'help'].includes(args[0])) {
-    console.log('Zenith connector: stdio | doctor | setup\nUse ZENITH_CONFIG_FILE, or explicit ZENITH_URL / ZENITH_WORKSPACE_ID / ZENITH_TOKEN_FILE (or ZENITH_TOKEN).\nSetup: setup --output ABSOLUTE_PATH --url TRUSTED_ORIGIN --workspace ID --token-file ABSOLUTE_PATH [--project ID] [--environment ID] [--allow-loopback-http]\nSetup creates a new private profile, never a credential or deployment. No implicit repository configuration.\nLocal HTTP requires explicit opt-in. See docs/configuration.md.'); return;
+    console.log('Zenith connector: stdio | doctor | setup | --help | --version\nUse ZENITH_CONFIG_FILE, or explicit ZENITH_URL / ZENITH_WORKSPACE_ID / ZENITH_TOKEN_FILE (or ZENITH_TOKEN).\nSetup: setup --output ABSOLUTE_PATH --url TRUSTED_ORIGIN --workspace ID --token-file ABSOLUTE_PATH [--project ID] [--environment ID] [--allow-loopback-http]\nSetup creates a new private profile, never a credential or deployment. No implicit repository configuration.\nLocal HTTP requires explicit opt-in. See docs/configuration.md.\nIn an installed package only --help and --version run ungated; stdio, doctor, setup and the v2 control commands require the trusted launcher\'s absolute ZENITH_PROVENANCE_MANIFEST and ZENITH_PROVENANCE_TRUST paths and fail closed with provenance_required. See docs/provenance.md.'); return;
   }
   if (args[0] === 'setup') { console.log(JSON.stringify(await setup(args.slice(1)), null, 2)); return; }
-  if (args.length > 1 || args[0] && !['stdio', 'doctor'].includes(args[0])) throw new ClientError('usage', 'Use stdio, doctor, setup, or --help.');
+  if (args.length > 1 || args[0] && !['stdio', 'doctor'].includes(args[0])) throw new ClientError('usage', 'Use stdio, doctor, setup, --help, or --version.');
   const client = await configuredClient();
   if (args[0] === 'doctor') { console.log(JSON.stringify(await inspectConnection(client), null, 2)); return; }
   const controller = new AbortController(), stop = () => controller.abort();
@@ -108,8 +119,12 @@ export async function main(args = process.argv.slice(2)) {
   try { await serve(client, { signal: controller.signal }); }
   finally { process.off('SIGINT', stop); process.off('SIGTERM', stop); }
 }
+// A provenance refusal names the missing or rejected trust input. Masking it as
+// a credential problem sent operators to debug the wrong file, so its code and
+// message are preserved exactly like a ClientError's.
 if (isMain(import.meta.url)) main().catch(error => {
-  console.error(JSON.stringify({ level: 'error', code: error instanceof ClientError ? error.code : 'startup_failed',
-    message: error instanceof ClientError ? error.message : 'Could not load configuration or credential. Check paths, ownership, and JSON; secret values are not logged.' }));
+  const explicit = error instanceof ClientError || error instanceof ProvenanceError;
+  console.error(JSON.stringify({ level: 'error', code: explicit ? error.code : 'startup_failed',
+    message: explicit ? error.message : 'Could not load configuration or credential. Check paths, ownership, and JSON; secret values are not logged.' }));
   process.exitCode = 1;
 });
