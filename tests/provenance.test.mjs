@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync } from 'node:crypto';
-import { mkdtemp, rm, symlink, writeFile, cp } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, symlink, writeFile, cp } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { tmpdir } from 'node:os';
@@ -69,12 +69,30 @@ test('a generated plugin cannot disable its activation gate with the environment
   const dir = await mkdtemp(path.join(tmpdir(), 'zenith provenance activation '));
   t.after(() => rm(dir, { recursive: true, force: true }));
   await cp(path.resolve('plugins/codex'), dir, { recursive: true });
-  await assert.rejects(
-    run(process.execPath, [path.join(dir, 'runtime/bridge/cli.mjs'), '--help'], {
-      env: { ...process.env, ZENITH_REQUIRE_PROVENANCE: '0', ZENITH_URL: 'https://zenith.example', ZENITH_WORKSPACE_ID: 'ws', ZENITH_TOKEN: `za_${'X'.repeat(43)}` },
-    }),
-    error => error.code === 1 && error.stdout === '' && /startup_failed/.test(error.stderr)
-  );
+  const env = { ...process.env, ZENITH_REQUIRE_PROVENANCE: '0', ZENITH_URL: 'https://zenith.example', ZENITH_WORKSPACE_ID: 'ws', ZENITH_TOKEN: `za_${'X'.repeat(43)}` };
+  delete env.ZENITH_PROVENANCE_MANIFEST; delete env.ZENITH_PROVENANCE_TRUST;
+  for (const command of ['doctor', 'stdio', 'setup']) {
+    await assert.rejects(
+      run(process.execPath, [path.join(dir, 'runtime/bridge/cli.mjs'), command], { env, timeout: 10_000 }),
+      error => error.code === 1 && error.stdout === '' && /"code":"provenance_required"/.test(error.stderr)
+        && /ZENITH_PROVENANCE_MANIFEST/.test(error.stderr),
+      `${command} must fail closed with a named provenance refusal`
+    );
+  }
+});
+
+test('--help and --version stay usable in an installed package without provenance', async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'zenith provenance ungated '));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await cp(path.resolve('plugins/codex'), dir, { recursive: true });
+  const env = { ...process.env };
+  delete env.ZENITH_PROVENANCE_MANIFEST; delete env.ZENITH_PROVENANCE_TRUST; delete env.ZENITH_API_VERSION;
+  const help = await run(process.execPath, [path.join(dir, 'runtime/bridge/cli.mjs'), '--help'], { env, timeout: 10_000 });
+  assert.match(help.stdout, /Zenith connector/);
+  assert.match(help.stdout, /provenance_required/);
+  const version = await run(process.execPath, [path.join(dir, 'runtime/bridge/cli.mjs'), '--version'], { env, timeout: 10_000 });
+  const { version: expected } = JSON.parse(await readFile(path.resolve('package.json'), 'utf8'));
+  assert.equal(version.stdout.trim(), expected);
 });
 
 for (const [label, mutate, expected] of [
