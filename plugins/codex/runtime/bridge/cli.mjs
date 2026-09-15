@@ -14,8 +14,22 @@ export { readCredential } from './config.mjs';
  * the activation gate so an operator can read an installed package's usage and
  * version while the trusted launcher's provenance inputs are still being
  * configured. Everything else stays behind the gate.
+ *
+ * Being ungated is not enough on its own: `main` must also answer these
+ * commands before the environment-driven control routing, or an ungated
+ * invocation still imports the gated module graph. `-h` is spelled here too,
+ * so the common abbreviation cannot fall through to that routing.
  */
-const UNGATED_COMMANDS = new Set(['--help', 'help', '--version', 'version']);
+const HELP_COMMANDS = new Set(['--help', '-h', 'help']);
+const VERSION_COMMANDS = new Set(['--version', 'version']);
+const UNGATED_COMMANDS = new Set([...HELP_COMMANDS, ...VERSION_COMMANDS]);
+
+const HELP_TEXT = 'Zenith connector: stdio | doctor | setup | --help | --version\n'
+  + 'Use ZENITH_CONFIG_FILE, or explicit ZENITH_URL / ZENITH_WORKSPACE_ID / ZENITH_TOKEN_FILE (or ZENITH_TOKEN).\n'
+  + 'Setup: setup --output ABSOLUTE_PATH --url TRUSTED_ORIGIN --workspace ID --token-file ABSOLUTE_PATH [--project ID] [--environment ID] [--allow-loopback-http]\n'
+  + 'Setup creates a new private profile, never a credential or deployment. No implicit repository configuration.\n'
+  + 'Local HTTP requires explicit opt-in. See docs/configuration.md.\n'
+  + 'In an installed package only --help and --version run ungated; stdio, doctor, setup and the v2 control commands require the trusted launcher\'s absolute ZENITH_PROVENANCE_MANIFEST and ZENITH_PROVENANCE_TRUST paths and fail closed with provenance_required. See docs/provenance.md.';
 
 export async function serve(client, { input = process.stdin, output = process.stdout, signal } = {}) {
   const active = new Map(); let buffer = Buffer.alloc(0), discarding = false, state = 'new';
@@ -101,15 +115,21 @@ export async function serve(client, { input = process.stdin, output = process.st
   }
 }
 export async function main(args = process.argv.slice(2)) {
-  if (!UNGATED_COMMANDS.has(args[0] ?? '')) await enforceInstalledProvenance();
-  if (['--version', 'version'].includes(args[0])) { console.log(VERSION); return; }
+  const command = args[0] ?? '';
+  // Static text first, unconditionally. The control routing below keys off
+  // inherited environment (ZENITH_API_VERSION=2, ZENITH_PROFILES_FILE), so
+  // while help was printed after it, an operator running --help on a machine
+  // where either variable happened to be set pulled the whole control module
+  // graph — profiles, vault, keychain, remote — into a process the activation
+  // gate had deliberately not verified. Nothing above this line reads a
+  // credential, a profile or a provenance input.
+  if (HELP_COMMANDS.has(command)) { console.log(HELP_TEXT); return; }
+  if (!UNGATED_COMMANDS.has(command)) await enforceInstalledProvenance();
+  if (VERSION_COMMANDS.has(command)) { console.log(VERSION); return; }
   if (process.env.ZENITH_API_VERSION === '2' || process.env.ZENITH_PROFILES_FILE || ['profile','source','remote-config'].includes(args[0])) {
     const { main: controlMain } = await import('../control/cli.mjs'); await controlMain([...args]); return;
   }
   if (process.env.ZENITH_API_VERSION && process.env.ZENITH_API_VERSION !== '1') throw new ClientError('unsupported_version', 'Select API version 1 or 2 explicitly.');
-  if (['--help', 'help'].includes(args[0])) {
-    console.log('Zenith connector: stdio | doctor | setup | --help | --version\nUse ZENITH_CONFIG_FILE, or explicit ZENITH_URL / ZENITH_WORKSPACE_ID / ZENITH_TOKEN_FILE (or ZENITH_TOKEN).\nSetup: setup --output ABSOLUTE_PATH --url TRUSTED_ORIGIN --workspace ID --token-file ABSOLUTE_PATH [--project ID] [--environment ID] [--allow-loopback-http]\nSetup creates a new private profile, never a credential or deployment. No implicit repository configuration.\nLocal HTTP requires explicit opt-in. See docs/configuration.md.\nIn an installed package only --help and --version run ungated; stdio, doctor, setup and the v2 control commands require the trusted launcher\'s absolute ZENITH_PROVENANCE_MANIFEST and ZENITH_PROVENANCE_TRUST paths and fail closed with provenance_required. See docs/provenance.md.'); return;
-  }
   if (args[0] === 'setup') { console.log(JSON.stringify(await setup(args.slice(1)), null, 2)); return; }
   if (args.length > 1 || args[0] && !['stdio', 'doctor'].includes(args[0])) throw new ClientError('usage', 'Use stdio, doctor, setup, --help, or --version.');
   const client = await configuredClient();
