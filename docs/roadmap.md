@@ -2,6 +2,15 @@
 
 [Home](../README.md) · [Implemented control surface](control-v2.md)
 
+## Added in 0.3.0-dev.1
+
+- [x] `zenith login` / `logout` / `status`: the browser link (device) flow at protocol version 1, storing the issued credential in the existing per-platform credential store. `LINK_PROTOCOL_VERSION` is exported from the shared client; no MCP tool was added, so the contract snapshot and backend parity are untouched.
+- [x] Local write enablement follows the scopes the browser granted instead of a second local flag.
+- [x] A `link` skill, a rewritten `connect` skill, and `deploy` plus the `zenith-inspector` reviewer stating that phase 1 deployments are simulated and that LocalStack and AWS are not enabled.
+- [x] A shared credential scan run by both the build and the tests over every generated package file.
+
+Still open here: the link flow requires the backend link endpoints and its credential authority; without them `login` reports `link_unavailable`. `--revoke` opens the browser page and revokes nothing itself, because the revoke endpoint refuses any request carrying an `authorization` header.
+
 ## Implemented in 0.2.0-dev.1 and its backend companion
 
 - [x] Maintained SDK-backed standalone connector and two self-contained plugin packages.

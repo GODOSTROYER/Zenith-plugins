@@ -2,7 +2,7 @@
 
 One standalone connector and native Codex/Claude Code packages, generated from shared sources.
 
-**0.2.0-dev.1 — opt-in reviewed operations.** The legacy v1 reader remains the default. Version 2 requires the control backend merged in [Zenith PR #6](https://github.com/GODOSTROYER/zenith/pull/6); it never turns on server writes or obtains additional permissions automatically.
+**0.3.0-dev.1 — browser-linked accounts and opt-in reviewed operations.** `zenith login` links this connector to a Zenith account through the user's browser and stores the issued credential in the platform credential store. The legacy v1 reader remains the default. Version 2 requires the control backend merged in [Zenith PR #6](https://github.com/GODOSTROYER/zenith/pull/6); it never turns on server writes or obtains additional permissions automatically. Phase 1 deployments are simulated by the `sandbox` provider: LocalStack and AWS are not enabled.
 
 ## Capabilities
 
@@ -10,7 +10,7 @@ V2 exposes up to 24 scoped tools: the thirteen original reads plus exact proposa
 
 Every change follows **prepare → review in Zenith → execute the existing operation ID → inspect the real outcome**. The agent cannot approve itself. Dispatch success does not mean a deployment is healthy. Provider and source-contract limits remain authoritative in Zenith.
 
-Eleven shared skills cover connect, inspect, plan, edit, deploy, rollback, promote, publish, observe, incident and export. Claude Code additionally includes two read-oriented evidence reviewers; they cannot independently authorize writes.
+Twelve shared skills cover link, connect, inspect, plan, edit, deploy, rollback, promote, publish, observe, incident and export. Claude Code additionally includes two read-oriented evidence reviewers; they cannot independently authorize writes.
 
 ## Development
 
@@ -27,7 +27,14 @@ Node 22.16 or newer. The TypeScript client and v2 runtime are strict-checked. SD
 
 ## Configuration
 
-Use an explicitly selected trusted URL, workspace/project IDs and one credential source. To select v2:
+Link an account in the browser — the command prints a URL and a code, waits for the approval, then stores the credential and reports what was granted:
+
+```bash
+ZENITH_API_VERSION=2 node packages/bridge/cli.mjs login        # defaults to https://tryzenith.cloud
+ZENITH_API_VERSION=2 node packages/bridge/cli.mjs status
+```
+
+Writes are enabled locally when, and only when, the browser approval granted the `write` scope. [Installation](docs/installation.md) has the per-platform credential destinations and the Windows environment block. Or configure an operator-issued credential explicitly, with a trusted URL, workspace/project IDs and one credential source:
 
 ```bash
 export ZENITH_API_VERSION=2
