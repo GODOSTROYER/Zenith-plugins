@@ -127,7 +127,9 @@ node scripts/provenance.mjs verify-package \
 
 Both variables must be absolute paths and are never read from package content. A missing, invalid, untrusted, expired, rolled-back, tampered or mismatched package exits before any connection or tool is opened.
 
-Inside an installed package, `node runtime/bridge/cli.mjs --help` and `--version` print static text and run without provenance inputs. Every other command — `doctor`, `stdio`, `setup` and the v2 control commands — is gated and fails closed with code `provenance_required` naming the missing variable. `ZENITH_REQUIRE_PROVENANCE=0` cannot disable the packaged gate.
+Inside an installed package, `node runtime/bridge/cli.mjs --help` (also `-h` and `help`) and `--version` print static text and run without provenance inputs. Every other command — `doctor`, `stdio`, `setup` and the v2 control commands — is gated and fails closed with code `provenance_required` naming the missing variable. `ZENITH_REQUIRE_PROVENANCE=0` cannot disable the packaged gate.
+
+The ungated commands are answered **before** the version-2 routing, not only before the gate. That routing keys off inherited environment — `ZENITH_API_VERSION=2` or `ZENITH_PROFILES_FILE` — so while help was printed after it, `--help` on an operator machine where either variable was already exported imported the whole control module graph (profiles, vault, keychain, remote) into a process the activation gate had deliberately not verified. It printed static text and opened nothing, so no credential was exposed, but the unverified import was real. `--help`, `-h`, `help` and `--version` now return before any control, profile or credential module is loaded, whatever the environment says.
 
 ### Verified bytes are the executed bytes
 
@@ -140,6 +142,10 @@ The launcher also refuses an `--entry` that the package's signed `.mcp.json` doe
 A genuinely signed older package is still a downgrade. After each accepted activation the launcher records the subject and version in `zenith-provenance-state.json`, in the directory that holds `ZENITH_PROVENANCE_TRUST` (override with an absolute `ZENITH_PROVENANCE_STATE`). A later activation whose signed version is lower is refused with `version_rollback`.
 
 Enforcement is unconditional. Recording is best effort, because a hardened operator may keep the trust directory read-only: a failed write is reported on stderr, and `ZENITH_PROVENANCE_STATE_REQUIRED=1` turns it into a refusal. In a read-only deployment, pin `minimumVersions` in the trust file instead — that floor is enforced by the verifier itself, in the launcher and in the in-process backstop alike.
+
+Only an **absent** state file means "nothing recorded yet". Every other failure to read it — a permission denial, an I/O error, a path component that is not a directory — refuses activation with code `state_unreadable` rather than starting from no floor. This distinction is the difference between a first activation and a silently reset one: treating an unreadable floor as absent accepted a genuinely signed *older* package with exit 0 and no warning, which is exactly the downgrade the floor exists to stop. If the message names your own state path, repair or delete that file deliberately; deleting it is a conscious reset, and the next activation records the version it accepts.
+
+The state file is itself a trust input, because whoever can delete it can re-enable that downgrade. Its default location is the `ZENITH_PROVENANCE_TRUST` directory, already checked when the trust file is read. An absolute `ZENITH_PROVENANCE_STATE` override is put through the **same** directory check: the directory must exist, and on POSIX it must not be world-writable without the sticky bit, or activation is refused with `unsafe_trust_path` naming `ZENITH_PROVENANCE_STATE`. As everywhere else in this document, Windows reports the permission half of that check as unverified rather than passing it — an override there emits a `state_permissions_unverified` warning on stderr, and the directory must be protected with an explicit ACL.
 
 ## Rotation
 
