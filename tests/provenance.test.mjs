@@ -8,6 +8,7 @@ import {
   createPackageManifest, createReleaseManifest, signReleaseManifest,
   verifyPackageDirectory, verifyArtifactDirectory, ProvenanceError,
 } from '../packages/provenance/index.mjs';
+import { enforceInstalledProvenance } from '../packages/provenance/consumer.mjs';
 
 const signedAt = '2026-09-14T00:00:00.000Z';
 function keys() {
@@ -33,6 +34,32 @@ test('valid signed package manifest verifies with an explicit active key', async
   const result = await verifyPackageDirectory(f.dir, f.envelope, { trustedKeys: f.trust, now: signedAt });
   assert.equal(result.keyId, 'publisher-2026');
   assert.equal(result.manifest.subject.client, 'codex');
+});
+
+test('the installed-package execution gate fails closed when required inputs are absent', async () => {
+  await assert.rejects(
+    enforceInstalledProvenance({ required: true, packageDir: path.resolve('.') }),
+    error => code(error) === 'provenance_required'
+  );
+});
+
+test('the installed-package execution gate verifies the exact package bytes', async t => {
+  const f = await packageFixture(); t.after(() => rm(f.dir, { recursive: true, force: true }));
+  const control = await mkdtemp(path.join(tmpdir(), 'zenith provenance control '));
+  t.after(() => rm(control, { recursive: true, force: true }));
+  const manifestPath = path.join(control, 'publisher-manifest.json');
+  const trustPath = path.join(control, 'trusted-keys.json');
+  await writeFile(manifestPath, JSON.stringify(f.envelope));
+  await writeFile(trustPath, JSON.stringify(f.trust));
+  const result = await enforceInstalledProvenance({
+    required: true, packageDir: f.dir, manifestPath, trustPath, now: signedAt,
+  });
+  assert.equal(result.keyId, 'publisher-2026');
+  await writeFile(path.join(f.dir, 'runtime.txt'), 'tampered after install\n');
+  await assert.rejects(
+    enforceInstalledProvenance({ required: true, packageDir: f.dir, manifestPath, trustPath, now: signedAt }),
+    error => code(error) === 'artifact_mismatch'
+  );
 });
 
 for (const [label, mutate, expected] of [

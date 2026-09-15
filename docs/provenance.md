@@ -54,4 +54,23 @@ node scripts/provenance.mjs verify-release \
 
 Verification requires the explicit version-1 allowlist, authenticates the signed envelope, checks key status and validity, binds the release report to the signed archive set, and checks every archive's byte length and SHA-256. Unsigned, unknown, revoked, expired, tampered, missing, extra, or mismatched artifacts fail closed. `sign-package`/`verify-package` provide the equivalent gate for an already extracted package; do not execute it before that check.
 
+## Runtime execution gate
+
+The self-contained bridge repeats the package check immediately before opening
+its MCP/control surface when the trusted launcher sets:
+
+```bash
+export ZENITH_REQUIRE_PROVENANCE=1
+export ZENITH_PROVENANCE_MANIFEST=/absolute/path/release-manifest.json
+export ZENITH_PROVENANCE_TRUST=/absolute/path/trusted-keys.json
+```
+
+Both paths must be absolute and are never read from package content. A missing,
+invalid, untrusted, expired, tampered or mismatched package exits before any
+connection or tool is opened. Development checkouts intentionally leave the
+flag unset; a production installer/marketplace launcher must set it and pass
+the signed envelope and operator trust file. The generated plugin includes the
+gate implementation under `runtime/provenance/` and the bridge calls it on
+every startup.
+
 The signed envelope covers its algorithm, key ID, signing time, expiry, and manifest. Key rotation requires distributing the new public key through the operator's trusted configuration channel. Mark an old key `revoked` after migration; a valid old signature is then rejected. No trust key is embedded in this repository, and the repository does not silently alter Codex/Claude marketplace behavior or publish artifacts.

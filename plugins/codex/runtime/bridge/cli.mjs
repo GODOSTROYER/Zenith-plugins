@@ -4,6 +4,7 @@ import { isMain } from './entrypoint.mjs';
 import { ClientError, validateRequest, errorResponse, MAX_REQUEST_BYTES } from '../client/dist/index.js';
 import { configuredClient, setup } from './config.mjs';
 import { inspectConnection } from './doctor.mjs';
+import { enforceInstalledProvenance } from '../provenance/consumer.mjs';
 export { readCredential } from './config.mjs';
 
 export async function serve(client, { input = process.stdin, output = process.stdout, signal } = {}) {
@@ -90,6 +91,7 @@ export async function serve(client, { input = process.stdin, output = process.st
   }
 }
 export async function main(args = process.argv.slice(2)) {
+  await enforceInstalledProvenance();
   if (process.env.ZENITH_API_VERSION === '2' || process.env.ZENITH_PROFILES_FILE || ['profile','source','remote-config'].includes(args[0])) {
     const { main: controlMain } = await import('../control/cli.mjs'); await controlMain([...args]); return;
   }
