@@ -17,21 +17,52 @@
  */
 import { lstat, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { ProvenanceError, compareVersions, versionFloorKey } from '../provenance/index.mjs';
+import { ProvenanceError, assertTrustDirectoryPath, compareVersions, versionFloorKey } from '../provenance/index.mjs';
 
 export const STATE_FILENAME = 'zenith-provenance-state.json';
 
-export function statePath(trustPath, env = process.env) {
+/**
+ * Resolve the rollback-floor file and check the directory that holds it.
+ *
+ * The state file is a trust input: deleting it resets the floor, so anyone who
+ * can write its directory can re-enable a downgrade. The default location is
+ * the ZENITH_PROVENANCE_TRUST directory, which `assertTrustInputPath` has
+ * already checked. An absolute-path override used to skip that check entirely,
+ * so a floor kept in a shared directory was unprotected; the override now goes
+ * through the same directory check, and reports the same "unverified" result
+ * on Windows rather than claiming a guarantee the platform did not give.
+ */
+export async function statePath(trustPath, { env = process.env, platform = process.platform } = {}) {
   const override = env.ZENITH_PROVENANCE_STATE;
-  if (override === undefined) return path.join(path.dirname(trustPath), STATE_FILENAME);
+  if (override === undefined) {
+    const file = path.join(path.dirname(trustPath), STATE_FILENAME);
+    return { path: file, overridden: false, permissionsChecked: platform !== 'win32' };
+  }
   if (typeof override !== 'string' || !path.isAbsolute(override))
     throw new ProvenanceError('provenance_required', 'ZENITH_PROVENANCE_STATE must be an absolute path.');
-  return override;
+  const directory = await assertTrustDirectoryPath(path.dirname(override), 'ZENITH_PROVENANCE_STATE', { platform });
+  return { path: override, overridden: true, permissionsChecked: directory.permissionsChecked, reason: directory.reason };
 }
 
-async function readState(file, platform = process.platform) {
+/**
+ * `stat` is injectable because the two branches below cannot both be produced
+ * from a real path on every platform: POSIX reports ENOTDIR for a path under a
+ * regular file, while Windows reports ENOENT for the same path, which is the
+ * very confusion this function exists to refuse. Tests pin both branches with
+ * it; nothing outside this module passes it.
+ */
+async function readState(file, { platform = process.platform, stat = lstat } = {}) {
   let info;
-  try { info = await lstat(file); } catch { return undefined; } // Absent: this is the first recorded activation.
+  try { info = await stat(file); }
+  catch (error) {
+    // Only "absent" is a first activation. Any other error — a permission
+    // denial, an I/O error, a path component that is not a directory — used to
+    // land here too, which silently unset the rollback floor and accepted a
+    // genuinely signed older package with exit 0. Fail closed instead.
+    if (error?.code === 'ENOENT') return undefined;
+    throw new ProvenanceError('state_unreadable',
+      `${file} could not be read (${error?.code ?? error?.message}); refusing to treat an unreadable rollback floor as a first activation.`);
+  }
   if (!info.isFile()) throw new ProvenanceError('invalid_state', `${file} must be a regular file.`);
   if (platform !== 'win32' && (info.mode & 0o002) !== 0)
     throw new ProvenanceError('invalid_state', `${file} is world-writable; any local user could lower the rollback floor.`);
@@ -45,9 +76,9 @@ async function readState(file, platform = process.platform) {
 }
 
 /** The last accepted version for this subject, or undefined on first activation. */
-export async function readLastGood(file, subjectKey) {
+export async function readLastGood(file, subjectKey, options) {
   if (!subjectKey) return undefined;
-  const state = await readState(file);
+  const state = await readState(file, options);
   const entry = state?.subjects?.[subjectKey];
   if (entry === undefined) return undefined;
   if (!entry || typeof entry !== 'object' || typeof entry.version !== 'string')
@@ -56,12 +87,14 @@ export async function readLastGood(file, subjectKey) {
 }
 
 /** Record a newly accepted version. Never lowers an existing floor. */
-export async function recordLastGood(file, result, { required = false } = {}) {
+export async function recordLastGood(file, result, { required = false, ...options } = {}) {
   const subjectKey = versionFloorKey(result?.manifest);
   const version = result?.manifest?.subject?.version;
   if (!subjectKey || typeof version !== 'string')
     return { recorded: false, reason: 'The signed subject has no name or version to record.' };
-  const state = (await readState(file)) ?? { version: 1, subjects: {} };
+  // An unreadable existing floor throws here rather than being recorded over:
+  // recording is best effort, reading the floor it might lower is not.
+  const state = (await readState(file, options)) ?? { version: 1, subjects: {} };
   const previous = state.subjects[subjectKey];
   if (previous && typeof previous.version === 'string' && compareVersions(version, previous.version, subjectKey) <= 0)
     return { recorded: false, reason: 'The accepted version is not newer than the recorded floor.', floor: previous.version };
