@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0-dev.1
+
+Adds `zenith login`, `zenith logout` and `zenith status`. `login` links this connector to a Zenith account through the user's browser: it prints a verification URL and a user code, opens a browser when it can, and polls the link endpoint honouring the server's interval and `slow_down` until the credential is issued, denied or expired. The issued credential goes into the credential store the platform already had — a private 0600 file beside the named profile on POSIX, the macOS Keychain with `--keychain`, a CurrentUser DPAPI vault on Windows — before anything is printed, and it is never printed. The device code is held in memory only: it reaches no file, no printed line and no diagnostic record.
+
+Local write enablement now follows the scopes the browser granted rather than a second local flag. The browser approval named the workspace, the projects and the scopes under a live signed-in identity, which is a stronger opt-in than `ZENITH_ALLOW_WRITES=1`; the server still hides write tools when its own capability is off, and `zenith_execute_operation` still requires a browser-approved digest. `logout` removes the local credential only — a credential may never revoke itself, so `--revoke` opens the browser page where revocation actually happens. `status` is additive beside `doctor`, whose JSON shape is unchanged, and introduces no MCP tool, so `contracts/control-v2.json` and backend contract parity are untouched.
+
+New `link` skill, rewritten `connect` skill, and a `deploy` skill plus `zenith-inspector` reviewer that state the phase-1 truth: the `sandbox` provider simulates deployments, and LocalStack and AWS are not enabled yet. `scripts/build.mjs` and `tests/hardening.test.mjs` now run the same scan over every generated package file for an agent bearer, a link device code or a `ZENITH_TOKEN` assignment, so a credential cannot reach a commit through either route. `login` stays behind the activation gate: a command that opens a network connection and writes a credential is the last one that should run before the package has been verified.
+
 ## 0.2.0-dev.1
 
 Adds an opt-in maintained-SDK control path, named profiles, Windows DPAPI credential source, local source packaging/upload, eleven workflows, two Claude evidence reviewers, versioned tool contracts and manually attested review artifacts. Requires the companion reviewed-operation backend merged in Zenith PR #6. V1 remains read-only and separately configured. No implicit privilege migration or public release.

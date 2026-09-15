@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {mkdtemp,readFile,rm,stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import {execFile} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 import {tsImport} from 'tsx/esm/api';
 const {loginCommand,allowWritesFor,clientName,defaultProfileName,defaultProfilesFile,defaultVaultPath}=await tsImport('../packages/control/login.ts',import.meta.url);
 const {readVault}=await tsImport('../packages/control/vault.ts',import.meta.url);
@@ -129,6 +131,27 @@ test('login refuses an insecure or unknown destination before it reaches the net
   await assert.rejects(loginCommand(['--url',ORIGIN,'--scopes','read,root','--no-browser'],network),{code:'usage'});
   await assert.rejects(loginCommand(['--url',ORIGIN,'--unknown','x'],network),{code:'usage'});
   await assert.rejects(loginCommand(['--url',ORIGIN,'--name','bad name'],network),{code:'usage'});
+});
+
+test('the bridge routes login and reports the real refusal code, not startup_failed',{timeout:20000},async()=>{
+  const cli=fileURLToPath(new URL('../packages/bridge/cli.mjs',import.meta.url));
+  const env={...process.env};for(const key of Object.keys(env))if(key.startsWith('ZENITH_'))delete env[key];
+  const run=args=>new Promise(resolve=>execFile(process.execPath,[cli,...args],{env},(error,stdout,stderr)=>resolve({code:error?.code??0,stdout,stderr})));
+  // Ungated help names the new verb and opens nothing.
+  const help=await run(['--help']);
+  assert.equal(help.code,0);
+  assert.match(help.stdout,/login/);
+  // login routes to the control CLI with no Zenith environment at all, which is
+  // the entire point, and its refusal reaches the operator by its own code. The
+  // control CLI is a bundle with its own ClientError, so `instanceof` alone
+  // reported every control refusal as startup_failed.
+  const refused=await run(['login','--url','http://example.test','--no-browser']);
+  assert.equal(refused.code,1);
+  assert.deepEqual(JSON.parse(refused.stderr).code,'insecure_endpoint');
+  assert.equal(refused.stdout,'');
+  const unlinked=await run(['status']);
+  assert.equal(unlinked.code,0);
+  assert.equal(unlinked.stdout.trim(),'Not linked. Run `zenith login`.');
 });
 
 test('Windows login stores a DPAPI vault, writes no profile and prints the environment block',{skip:process.platform!=='win32'?'Windows DPAPI path; a skipped POSIX run is not Windows evidence':false,timeout:60000},async t=>{

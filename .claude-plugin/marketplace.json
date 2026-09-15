@@ -7,8 +7,8 @@
     {
       "name": "zenith",
       "source": "./plugins/claude-code",
-      "description": "Zenith inspection and opt-in browser-reviewed operations; development build.",
-      "version": "0.2.0-dev.1"
+      "description": "Link a Zenith account, architect and deploy with browser-reviewed changes. Phase 1 deploys are simulated.",
+      "version": "0.3.0-dev.1"
     }
   ]
 }

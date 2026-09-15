@@ -20,7 +20,7 @@ A read has a deadline covering credential acquisition, HTTP headers and body con
 
 ## ADR 001 — shared source, self-contained distribution
 
-`scripts/build.mjs` regenerates both packages and marketplace definitions. Installed runtimes and all five skills are checked against canonical source recursively. Each package contains a deterministic SHA-256 inventory. `scripts/release.mjs` uses the installed npm CLI in offline, ignore-scripts mode, verifies packed file membership and prepares local review archives. Hashes detect accidental changes; they do not authenticate a publisher.
+`scripts/build.mjs` regenerates both packages and marketplace definitions. Installed runtimes and every shared skill are checked against canonical source recursively. Adding a skill is a build-and-commit, never a hand copy: `scripts/check.mjs` compares inventories and `tests/package.test.mjs` compares each `SKILL.md` byte for byte against `shared/skills/`. Each package contains a deterministic SHA-256 inventory. `scripts/release.mjs` uses the installed npm CLI in offline, ignore-scripts mode, verifies packed file membership and prepares local review archives. Hashes detect accidental changes; they do not authenticate a publisher.
 
 ## ADR 002 — explicit, limited protocol profile
 
@@ -35,6 +35,14 @@ Neither a prompt nor a model-provided approval field grants permission. Executab
 ## ADR 004 — explicit private profiles
 
 Setup creates a new versioned, private profile pointing to an existing private token file. It validates the destination, IDs and file permissions, refuses overwrites and never stores raw tokens in the profile. No default profile discovery or `.env` loading occurs. A profile and individual connection variables cannot be combined ambiguously. On Windows, private-file access fails closed until ACL validation exists; explicit environment credentials remain available.
+
+## ADR 005 — the browser is the issuer; the terminal only asks
+
+`zenith login` speaks a device flow whose only authority is the user's browser session. The connector never sees a password, never receives a credential in a URL, and holds the device code in memory alone. The approval page is where the workspace, the projects, the scopes and the expiry are chosen, and the issued secret exists in exactly one response body, which is why the approve call deliberately does not return it: a browser tab is the least trustworthy place to hold a bearer, while the terminal already has a channel bound to the device code.
+
+Three consequences are deliberate. **Local write enablement follows the granted scopes**, because the approval is a stronger, more specific opt-in than the local flag it replaces, and two independent gates that both answer "capability_unavailable" make a refusal undiagnosable. **`logout` is local-only**, because the revoke endpoint refuses any request carrying an `authorization` header; giving a credential the power to revoke itself would be a new authority, so the command opens the browser page instead and says plainly that the credential stays valid until it expires. **`login` stays behind the activation gate**, because a command that opens a network connection and writes a credential is the last one that should run before the package bytes have been verified — see [provenance](provenance.md).
+
+The link module depends on none of the credential stores and the store logic depends on none of the protocol code, so the wire state machine is testable against a stub fetch with no filesystem, and the storage rules are testable with no network.
 
 ## Boundaries
 

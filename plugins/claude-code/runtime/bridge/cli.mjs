@@ -145,9 +145,20 @@ export async function main(args = process.argv.slice(2)) {
 // A provenance refusal names the missing or rejected trust input. Masking it as
 // a credential problem sent operators to debug the wrong file, so its code and
 // message are preserved exactly like a ClientError's.
+//
+// The v2 control CLI is loaded from an esbuild bundle that carries its own copy
+// of ClientError, so `instanceof` across that boundary is false even for a real,
+// deliberate refusal: every control refusal — `usage`, `profile_exists`,
+// `access_denied`, `vault_refused` — was reported as `startup_failed`, sending
+// operators to debug a credential that was never the problem. Recognise the
+// shape as well as the class, with both fields bounded because a code can
+// originate in a refusal the server explained.
+const REFUSAL_CODE = /^[a-z][a-z0-9_]{0,63}$/;
+const refusal = error => error instanceof ClientError || error instanceof ProvenanceError
+  || (error?.name === 'ClientError' && typeof error.code === 'string' && REFUSAL_CODE.test(error.code) && typeof error.message === 'string');
 if (isMain(import.meta.url)) main().catch(error => {
-  const explicit = error instanceof ClientError || error instanceof ProvenanceError;
+  const explicit = refusal(error);
   console.error(JSON.stringify({ level: 'error', code: explicit ? error.code : 'startup_failed',
-    message: explicit ? error.message : 'Could not load configuration or credential. Check paths, ownership, and JSON; secret values are not logged.' }));
+    message: explicit ? String(error.message).slice(0, 1000) : 'Could not load configuration or credential. Check paths, ownership, and JSON; secret values are not logged.' }));
   process.exitCode = 1;
 });

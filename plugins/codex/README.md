@@ -1,6 +1,8 @@
 # Zenith — development package
 
-Version 0.2.0-dev.1. Node 22.16 or later; no runtime installation or hooks.
+Version 0.3.0-dev.1. Node 22.16 or later; no runtime installation or hooks.
+
+Link this package to a Zenith account with `login`. It prints a verification URL and a user code, waits while you sign in and approve a workspace, projects and scopes in the browser, then stores the issued credential in this platform's credential store: a private 0600 file beside the named profile on POSIX, the macOS Keychain with --keychain, a CurrentUser DPAPI vault on Windows. It never prints the credential, and named profiles are unavailable on Windows, where it prints the environment block to set instead. `status` reports what the approval granted. `logout` removes the local copy; it does not revoke authority, which you do at ORIGIN/integrations. Phase 1 deployments are simulated by the sandbox provider: LocalStack and AWS are not enabled.
 
 Version 1 remains the read-only default. Set ZENITH_API_VERSION=2 with the companion Zenith control backend to inspect, prepare exact changes, execute browser-approved operations and package/upload supported frontend source. Writes require explicit client and server enablement. The client cannot approve its own operations. Native-client compatibility remains unverified.
 
@@ -11,7 +13,7 @@ node runtime/bridge/cli.mjs --help
 node runtime/bridge/cli.mjs --version
 ```
 
-Only --help and --version run ungated. doctor, stdio, setup and the v2 control commands require provenance inputs and fail closed with code provenance_required naming the missing variable. Run them through the trusted launcher instead:
+Only --help and --version run ungated. doctor, stdio, setup and the v2 control commands, login included, require provenance inputs and fail closed with code provenance_required naming the missing variable. A command that opens a network connection and writes a credential is deliberately the last one that should run before this package has been verified. Run them through the trusted launcher instead:
 
 ```bash
 zenith-plugin-launcher --package-dir ABSOLUTE_PATH_TO_THIS_PACKAGE --entry runtime/bridge/cli.mjs doctor
