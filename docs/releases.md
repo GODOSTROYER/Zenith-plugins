@@ -2,6 +2,8 @@
 
 [Home](../README.md) · [Verification](verification.md)
 
+Publisher-authenticated release signing and the operator trust workflow are documented in [Publisher provenance](provenance.md). Hash inventories alone do not authenticate a publisher.
+
 ## Compatibility
 
 Version 1 is retained as an explicit legacy read-only path. Version 2 requires the version-2 Zenith control contract and explicit client/server write enablement. Incompatible contracts fail closed; a server advertising a new tool cannot add authority to an installed plugin automatically. Adding a client surface reuses the shared transport and backend; it is not a new deployment implementation.

@@ -4,6 +4,8 @@
 
 [Home](../README.md) · [Configuration](configuration.md) · [Verification](verification.md)
 
+For an operator-authenticated release, complete the fail-closed [publisher provenance gate](provenance.md) before extracting or registering either package. The committed development packages contain hash inventories only and remain local/development-only.
+
 ## Prerequisites
 
 Access to both repositories, Node 22.16 or later and a real non-demo Zenith workspace member are required. The reader is merged in Zenith `master` at `2d56ecc3abe77f560d9c58bee14370b0789f386a`; earlier default branches may lack it. Use isolated development data and loopback binding. Full application/native-client integration remains unverified here.
@@ -92,7 +94,7 @@ The repository marketplace `.agents/plugins/marketplace.json` selects `plugins/c
 
 Pin compatible server/client revisions and review changes. Rebuild using the lockfile and replace the entire generated package, not individual runtime files. Restart/reload the agent according to its client behavior. Dev.2 requires result contract 1 and rejects ambiguous connection configuration; follow the migration notes in [configuration](configuration.md).
 
-`npm run release:prepare` verifies the checkout and writes both npm `.tgz` review archives, a release manifest and `SHA256SUMS` under ignored `artifacts/`. It does not publish packages or create a GitHub release. Hash inventories are not signatures; no public marketplace approval is implied.
+`npm run release:prepare` verifies the checkout and writes both npm `.tgz` review archives, `release.json` and `SHA256SUMS` under ignored `artifacts/`. It does not publish packages or create a GitHub release. Sign `release.json`'s archive set separately, then run the [provenance verification gate](provenance.md) before consuming it. Hash inventories are not signatures; no public marketplace approval is implied.
 
 **Revoke the credential in Zenith before uninstalling**:
 

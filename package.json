@@ -18,6 +18,7 @@
     "start": "node packages/bridge/cli.mjs stdio",
     "test:live": "node scripts/live-smoke.mjs",
     "release:prepare": "npm run verify && node scripts/release.mjs",
+    "provenance:verify": "node scripts/provenance.mjs verify-release",
     "contracts:check": "node scripts/contracts.mjs",
     "source": "node packages/bridge/cli.mjs source",
     "profile": "node packages/bridge/cli.mjs profile",
