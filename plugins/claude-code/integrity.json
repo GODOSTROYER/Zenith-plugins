@@ -24,7 +24,7 @@
     "runtime/client/dist/index.d.ts": "ad366f44e6818ff6810590231425a2adc1ab986ce1954daca14070082f41f4da",
     "runtime/client/dist/index.js": "59d52900d0a8ca7b77a3ad0eac36e2802990fde4b366328e180db3b8dcb2d428",
     "runtime/control/THIRD_PARTY_NOTICES.txt": "d466a92f36e5a3b0d1e705377be47ea4bbdac1c676f199331af9e7701290869f",
-    "runtime/control/cli.mjs": "4385615fed76d57d370d83e6d615f0533b7ebf6cbc9d107497cda6d2cbef59bd",
+    "runtime/control/cli.mjs": "1c1a0b3a3232c5309573a9eec3d71de9120a828ff0130828882d0bfbf7a8d410",
     "runtime/control/components.json": "b11a271d2674a3784d9c23170e0394590a98a7311d2e70f227971011f509981a",
     "runtime/provenance/consumer.mjs": "3e8146d080aa4525cb60fb2af1b2dc2de79c27da4122068c321972bd3b61dba6",
     "runtime/provenance/index.mjs": "da7a343724a7b632dbd50584bcfb53f7248cd3eb051f4cc9221cb150d81d022c",

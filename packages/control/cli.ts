@@ -62,7 +62,7 @@ export async function main(args:string[]=process.argv.slice(2),options:ControlMa
     console.log(JSON.stringify(await remoteConfiguration(),null,2));return;
   }
   const client=await controlClient();
-  if(command==='stdio'){await serveControl(client);return;}
+  if(command==='stdio'){await serveControl(client,activation);return;}
   if(command==='doctor'){console.log(JSON.stringify(await doctorReport(client,activation),null,2));return;}
   throw new ClientError('usage','Control commands: login, logout, status, stdio, doctor, profile, source, remote-config, credential-store. Set ZENITH_API_VERSION=2 explicitly.');
 }
