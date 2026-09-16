@@ -65,11 +65,16 @@ Where the credential goes, by platform:
 | --- | --- | --- |
 | Linux / macOS | `~/.config/zenith/<name>.token`, mode 0600, beside `~/.config/zenith/profiles.json` | written |
 | macOS with `--keychain` | login Keychain item | written, holding the service/account reference only |
-| Windows | `%LOCALAPPDATA%\ZenithPrivate\<name>.dpapi` (CurrentUser DPAPI) | **not written** |
+| Windows | `%LOCALAPPDATA%\ZenithPrivate\<name>.dpapi` (CurrentUser DPAPI) | written to `%APPDATA%\zenith\profiles.json`, holding the vault path only |
+| Windows with `--print-env` | `%LOCALAPPDATA%\ZenithPrivate\<name>.dpapi` | **not written**; the environment block is printed instead |
 
-Named profile files are POSIX-only in this build, because the private-file ACL validation a Windows profile would need does not exist yet. On Windows `login` prints the exact environment block to set instead, and `--json` emits the same data for a wrapper to consume. Vault paths are create-only: a second `login` for the same name refuses rather than replacing a credential.
+On Windows the profiles directory and file must be private: local, not links, owned by you, with protected ACLs that grant only you and SYSTEM. `login` creates `%APPDATA%\zenith` that way when it does not exist, and refuses an existing directory with wider access rather than changing it (`profile_acl`). Vault paths are create-only: a second `login` never replaces a credential.
 
-On POSIX the connector then finds that profile on its own: with no explicit connection variable set, it reads `$XDG_CONFIG_HOME/zenith/profiles.json`, or `~/.config/zenith/profiles.json`, which is the file `login` just wrote. That is what lets a marketplace-installed server, started by the host from a committed descriptor, use a credential no descriptor could name. An explicit `ZENITH_PROFILES_FILE` always wins, and any explicit connection variable (`ZENITH_URL`, `ZENITH_TOKEN_FILE`, …) turns the default lookup off entirely. On Windows there is no default: use the environment block `login` printed.
+The new profile becomes the active one. It is named after the workspace when Zenith names one, otherwise after the origin host, and steps to `name-2`, `name-3`, … if that name is taken; `--name` chooses it explicitly.
+
+The connector then finds that profile on its own: with no explicit connection variable set, it reads `$XDG_CONFIG_HOME/zenith/profiles.json` (else `~/.config/zenith/profiles.json`) on POSIX and `%APPDATA%\zenith\profiles.json` on Windows, which is the file `login` just wrote. That is what lets a marketplace-installed server, started by the host from a committed descriptor, use a credential no descriptor could name. An explicit `ZENITH_PROFILES_FILE` always wins, and any explicit connection variable (`ZENITH_URL`, `ZENITH_TOKEN_VAULT`, …) turns the default lookup off entirely — so a Windows machine still configured with the older environment block keeps using it until those variables are removed.
+
+A running server notices a new active profile on its next tool call (and within a few seconds otherwise), switches to it, and tells the host its tool list changed. `profile use NAME` switches between saved profiles the same way. A host that ignores tool-list changes, or a server that could not start before the first link, needs one reconnect.
 
 Then check it:
 

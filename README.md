@@ -38,9 +38,11 @@ Zenith link
 Waiting for approval (expires in 10 minutes). Press Ctrl-C to stop.
 ```
 
-Open the link, check the code matches the one in your terminal, choose the workspace, the projects and the scopes, and approve. The credential is stored in your platform's credential store — it is never printed, and never belongs in the conversation. Restart or reconnect the Zenith MCP server afterwards: it reads the credential when it starts.
+Open the link, check the code matches the one in your terminal, choose the workspace and either **Whole workspace** or specific projects, pick the scopes, and approve. The credential is stored in your platform's credential store — it is never printed, and never belongs in the conversation — and saved as a named profile that becomes the active one. A running Zenith MCP server picks it up on its next tool call; if your client ignores tool-list changes, or the server could not start before you linked, reconnect it once.
 
-[Installation](docs/installation.md) is the detailed reference: per-platform credential destinations, the Windows environment block, other clients, and the signed-release install.
+No workspace yet? Ask the agent to create one: it runs `login --new-workspace "Name"`, and the approval page lets you create the workspace and link it in one go. To work in another workspace, `login --workspace ID` preselects it, and `profile use NAME` switches between saved profiles.
+
+[Installation](docs/installation.md) is the detailed reference: per-platform credential destinations, Windows profiles, other clients, and the signed-release install.
 
 ## What you can ask
 
@@ -50,8 +52,25 @@ Open the link, check the code matches the one in your terminal, choose the works
 - "Deploy the current manifest to staging and tell me what actually happened."
 - "The last deploy looks wrong — show me the logs and compare the last two revisions."
 - "Roll back to the previous saved revision."
+- "Create a workspace called Acme and a project in it from this Compose file."
+- "Is staging healthy? Restart the API if it is stuck."
+- "Alert me when a deploy fails."
 
-Twelve skills ship with the plugin — link, connect, inspect, plan, edit, deploy, rollback, promote, publish, observe, incident and export — so the agent knows the shape of each of these requests. Claude Code also gets two read-only evidence reviewers, which cannot authorise a write.
+Eighteen skills ship with the plugin — link, connect, workspace, inspect, plan, edit, environments, secrets, deploy, operate, rollback, promote, publish, alerts, findings, observe, incident and export — so the agent knows the shape of each of these requests. Claude Code also gets two read-only evidence reviewers, which cannot authorise a write.
+
+## What the agent can do
+
+**Reads.** Workspaces you belong to (`zenith_list_workspaces`), the current workspace and its connections without credentials, projects, manifests, environments, deployment plans and history, events, drift, findings, audit history, alerts (rules, events, and channels without their destinations), health, read-only investigations, deployment and service logs (with the `logs` scope, redacted), secret references and versions (never values), blueprints, importable resources on sandbox/LocalStack connections, hosted apps you own, revisions and exports.
+
+**Reviewed changes.** Each is prepared by the agent, approved by a signed-in person in the browser against its exact digest, then executed once:
+
+- workspace: create a project (blank, from Compose, from a blueprint), rename the workspace, create/check/disconnect a sandbox or LocalStack connection, update/test/delete an alert channel — these need a **Whole workspace** link;
+- project: service, resource, binding and route edits, plain environment variables (`env.set`), adopting or removing a secret by reference, scaling, manifest replacement, Compose import, blueprint apply, resource import, environment creation, alert rules and acknowledgements, finding dismiss/reopen/resolve, app create/publish/rollback/suspend/resume;
+- environment: deploy, roll back, promote, cancel a deployment, restart a service, clone, rename, set budget or connection, and tighten policies.
+
+**Browser hand-offs.** The agent calls `zenith_get_handoff` and gives you a link; you do these yourself on tryzenith.cloud: creating a workspace, secret values and rotation, provider credentials, alert channel destinations, loosening environment policies, deleting an environment or project, approving a deployment, members and invites, workspace autonomy, your account (profile, export, deletion), hosted-app audiences, and re-linking or revoking the agent.
+
+**Never.** The agent cannot approve its own changes, see or send a secret value, change who is a member, loosen the policy that reviews it, drive the in-app Navigator, launch hosted apps or end their sessions, or widen its own credential.
 
 ## How approvals work
 
@@ -75,9 +94,9 @@ node runtime/bridge/cli.mjs logout     # removes the local credential only
 
 | Question | Answer |
 | --- | --- |
-| Who authorises an operation | Zenith, against the credential your browser issued, scoped to the workspace, projects and scopes you approved. |
+| Who authorises an operation | Zenith, against the credential your browser issued, scoped to the workspace, projects (or the whole workspace) and scopes you approved. |
 | Can the agent approve its own change | No. Execution requires a digest approved in the browser by a signed-in person. |
-| Where does the credential live | Your platform's credential store: a private 0600 file on Linux, the macOS Keychain with `--keychain`, a CurrentUser DPAPI vault on Windows. It is never printed or logged. |
+| Where does the credential live | Your platform's credential store: a private 0600 file on Linux, the macOS Keychain with `--keychain`, a CurrentUser DPAPI vault on Windows (referenced from `%APPDATA%\zenith\profiles.json`, whose directory and file must have private, protected ACLs). It is never printed or logged. |
 | Are the plugin bytes publisher-verified | **Not today.** The marketplace packages are unsigned previews: installing one proves your client downloaded this repository's package, not who produced it. `login`, `status` and `doctor` all say so. |
 | How do I get publisher verification | Use the signed-release install, which verifies every byte against an Ed25519 signature and an operator-owned trust file before any code in the package runs. |
 
@@ -85,7 +104,7 @@ node runtime/bridge/cli.mjs logout     # removes the local credential only
 
 ## Phase 1 scope
 
-Deployments are simulated by the `sandbox` provider. LocalStack and AWS are planned; nothing here creates cloud infrastructure or spends money. Version 1 of the connector remains a read-only reader and is configured separately; version 2, the reviewed-operations path this page describes, needs the companion Zenith control backend and exposes up to 24 scoped tools — thirteen reads plus exact proposal preparation, browser-approved execution, durable operation tracking, revisions and comparisons, scoped logs, incident bundles, app status and curated edit-field discovery.
+Deployments are simulated by the `sandbox` provider. LocalStack and AWS are planned; nothing here creates cloud infrastructure or spends money. Version 1 of the connector remains a read-only reader and is configured separately; version 2, the reviewed-operations path this page describes, needs the companion Zenith control backend and exposes up to 36 scoped tools — the reads and hand-offs above plus exact proposal preparation, browser-approved execution, durable operation tracking, revisions and comparisons, scoped logs, incident bundles, app status and curated edit-field discovery. The server lists only the tools your credential's scopes and its own configuration allow.
 
 ## Documentation
 
@@ -112,7 +131,7 @@ Companion to **[GODOSTROYER/zenith](https://github.com/GODOSTROYER/zenith)**: Ze
 | `packages/bridge` | the `login`, `setup`, `doctor`, `profile`, `source` and `stdio` commands |
 | `packages/launcher` | `zenith-plugin-launcher`, which activates a verified private copy of a signed release |
 | `packages/provenance` | the signing and verification primitives behind that gate |
-| `shared/skills` | the twelve workflow skills both plugins are generated from |
+| `shared/skills` | the eighteen workflow skills both plugins are generated from |
 | `plugins/claude-code`, `plugins/codex` | the generated packages, committed so installing one needs no compiler |
 | `contracts/control-v2.json` | the snapshot `npm run contracts:check` holds the backend to |
 | `tests` | the `node --test` suites for everything above |

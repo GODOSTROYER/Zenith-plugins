@@ -6,14 +6,20 @@
  * The issued bearer is written to its store before anything is printed, and it
  * is never printed at all — not in human output, not under `--json`, not in a
  * diagnostic record.
+ *
+ * Every platform now ends in a named profile that becomes the active one, so a
+ * running stdio server follows a re-link on its next call (reload.ts). Windows
+ * keeps its DPAPI vault as the credential and references it from an
+ * ACL-checked `%APPDATA%\zenith\profiles.json`; `--print-env` still prints the
+ * older environment block instead.
  */
 import { constants } from 'node:fs';
-import { mkdir, open, rm, unlink } from 'node:fs/promises';
+import { lstat, mkdir, open, rm, unlink } from 'node:fs/promises';
 import { homedir, hostname } from 'node:os';
 import path from 'node:path';
 import { ClientError } from '../client/dist/index.js';
 import { VERSION } from '../bridge/doctor.mjs';
-import { DEFAULT_REQUESTED_SCOPES, SCOPE_NAMES, linkOrigin, openBrowser, pollLink, startLink, type IssuedCredential } from './link.js';
+import { DEFAULT_REQUESTED_SCOPES, SCOPE_NAMES, WORKSPACE_NAME_HINT, linkOrigin, openBrowser, pollLink, startLink, type IssuedCredential } from './link.js';
 import { defaultProfilesFile, loadProfiles, resolveProfilesFile, updateProfiles, writeProfile, type Profiles } from './profiles.js';
 import { storeKeychain } from './keychain.js';
 import { storeVault } from './vault.js';
@@ -21,8 +27,10 @@ import { PREVIEW_NOTICE, isPreview, withVerification, type Activation } from './
 
 export const DEFAULT_ORIGIN = 'https://tryzenith.cloud';
 const PROFILE_NAME = /^[A-Za-z0-9_-]{1,40}$/;
-const VALUE_FLAGS = new Set(['--url', '--name', '--profiles', '--project', '--label', '--loopback', '--vault', '--keychain-service', '--keychain-account', '--scopes']);
-const BOOLEAN_FLAGS = new Set(['--no-browser', '--json', '--keychain', '--revoke']);
+const IDENTIFIER = /^[A-Za-z0-9_-]{1,100}$/;
+const VALUE_FLAGS = new Set(['--url', '--name', '--profiles', '--project', '--label', '--loopback', '--vault', '--keychain-service', '--keychain-account', '--scopes', '--workspace', '--new-workspace']);
+const BOOLEAN_FLAGS = new Set(['--no-browser', '--json', '--keychain', '--revoke', '--print-env']);
+const RELOAD_NOTE = 'A running Zenith MCP server switches to this profile on its next tool call. If your agent host ignores tool-list changes, reconnect the Zenith server once.';
 
 export interface LoginIo {
   env?: NodeJS.ProcessEnv;
@@ -68,12 +76,17 @@ export function defaultProfileName(origin: string): string {
   const cleaned = first.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40);
   return PROFILE_NAME.test(cleaned) ? cleaned : 'zenith';
 }
+/** The name a new link is saved under: the workspace slug when the server named one. */
+export function preferredProfileName(origin: string, credential: Pick<IssuedCredential, 'workspaceSlug'>): string {
+  return credential.workspaceSlug !== undefined && PROFILE_NAME.test(credential.workspaceSlug) ? credential.workspaceSlug : defaultProfileName(origin);
+}
 export { defaultProfilesFile };
 export function defaultVaultPath(env: NodeJS.ProcessEnv, name: string, home = homedir()): string {
   const base = env.LOCALAPPDATA && /^[A-Za-z]:\\/.test(env.LOCALAPPDATA) ? env.LOCALAPPDATA : path.win32.join(home, 'AppData', 'Local');
   return path.win32.join(base, 'ZenithPrivate', `${name}.dpapi`);
 }
 const days = (expiresAt: string, now: number): number => Math.max(0, Math.round((Date.parse(expiresAt) - now) / 86_400_000));
+const exists = async (file: string): Promise<boolean> => { try { await lstat(file); return true; } catch { return false; } };
 
 /** A browser approval that named the workspace, the projects and the scopes is the explicit
  *  write opt-in the local flag stood in for. The server still hides write tools when its own
@@ -92,6 +105,23 @@ async function writeTokenFile(file: string, token: string): Promise<void> {
   try { await handle.writeFile(token); await handle.sync(); } finally { await handle.close(); }
 }
 
+/**
+ * An explicit --name is used as given and refused later if taken. A derived name
+ * steps to `name-2`, `name-3`, … past an existing profile or a leftover
+ * credential file, so re-linking the same workspace never needs a flag.
+ */
+async function chooseName(explicit: string | undefined, preferred: string, taken: (name: string) => Promise<boolean>): Promise<string> {
+  if (explicit !== undefined) return explicit;
+  for (let n = 1; n <= 20; n++) {
+    const candidate = n === 1 ? preferred : `${preferred.slice(0, 36)}-${n}`;
+    if (!await taken(candidate)) return candidate;
+  }
+  throw new ClientError('profile_exists', `Twenty profiles named after ${preferred} already exist. Pass --name, or remove old ones with \`zenith logout --name NAME\`.`);
+}
+async function profileNames(file: string, platform: NodeJS.Platform): Promise<Set<string>> {
+  try { return new Set(Object.keys((await loadProfiles(file, platform)).profiles)); } catch { return new Set(); }
+}
+
 export async function loginCommand(args: string[], io: LoginIo = {}): Promise<void> {
   const env = io.env ?? process.env, platform = io.platform ?? process.platform;
   const out = io.out ?? (line => console.log(line)), err = io.err ?? (line => console.error(line));
@@ -104,10 +134,18 @@ export async function loginCommand(args: string[], io: LoginIo = {}): Promise<vo
   if (values['--loopback'] !== undefined && !['0', '1'].includes(values['--loopback'])) throw new ClientError('usage', 'Boolean connection flags accept only 0 or 1.');
   const allowLoopbackHttp = values['--loopback'] === '1' || env.ZENITH_ALLOW_LOOPBACK_HTTP === '1';
   const origin = linkOrigin(values['--url'] ?? env.ZENITH_URL ?? DEFAULT_ORIGIN, allowLoopbackHttp);
-  const name = values['--name'] ?? defaultProfileName(origin);
-  if (!PROFILE_NAME.test(name)) throw new ClientError('usage', 'Use a 1-40 character profile name of letters, digits, underscore or hyphen.');
+  const explicitName = values['--name'];
+  if (explicitName !== undefined && !PROFILE_NAME.test(explicitName)) throw new ClientError('usage', 'Use a 1-40 character profile name of letters, digits, underscore or hyphen.');
   const requestedScopes = values['--scopes'] ? values['--scopes'].split(',').map(scope => scope.trim()).filter(Boolean) : [...DEFAULT_REQUESTED_SCOPES];
   if (requestedScopes.some(scope => !SCOPE_NAMES.includes(scope))) throw new ClientError('usage', `Requested scopes must come from: ${SCOPE_NAMES.join(', ')}.`);
+  const workspaceHint = values['--workspace'], workspaceNameHint = values['--new-workspace']?.trim();
+  if (workspaceHint !== undefined && workspaceNameHint !== undefined) throw new ClientError('usage', 'Use --workspace for an existing workspace or --new-workspace for a new one, not both.');
+  if (workspaceHint !== undefined && !IDENTIFIER.test(workspaceHint)) throw new ClientError('usage', '--workspace takes a Zenith workspace ID (letters, digits, underscore or hyphen).');
+  if (workspaceNameHint !== undefined && !WORKSPACE_NAME_HINT.test(workspaceNameHint)) throw new ClientError('usage', '--new-workspace takes a 1-60 character name of letters, digits, spaces, dots, apostrophes, underscores or hyphens.');
+  if (values['--project'] !== undefined && !IDENTIFIER.test(values['--project'])) throw new ClientError('usage', '--project takes a Zenith project ID.');
+  const printEnv = booleans.has('--print-env');
+  if (printEnv && platform !== 'win32') throw new ClientError('usage', '--print-env is the Windows environment-block mode; POSIX logins always write a named profile.');
+  if (printEnv && booleans.has('--keychain')) throw new ClientError('usage', 'Choose --print-env or --keychain, not both.');
   const label = values['--label'] ?? hostLabel();
 
   const controller = new AbortController();
@@ -123,15 +161,23 @@ export async function loginCommand(args: string[], io: LoginIo = {}): Promise<vo
       ...(io.fetch ? { fetch: io.fetch } : {}),
       ...(env.ZENITH_DIAGNOSTICS === '1' ? { diagnostic: (record: Record<string, unknown>) => err(JSON.stringify(record)) } : {}),
     };
-    const start = await startLink({ ...transport, clientName: withVerification(clientName(env), io.activation), clientVersion: VERSION, ...(label === undefined ? {} : { label }), requestedScopes });
+    const start = await startLink({
+      ...transport, clientName: withVerification(clientName(env), io.activation), clientVersion: VERSION, ...(label === undefined ? {} : { label }), requestedScopes,
+      ...(workspaceHint === undefined ? {} : { workspaceHint }), ...(workspaceNameHint === undefined ? {} : { workspaceNameHint }),
+    });
     say('Zenith link\n');
     say(`  1. Open   ${start.verificationUriComplete}`);
     say(`  2. Check the code shown there matches:   ${start.userCode}`);
-    say('  3. Sign in, choose the workspace and projects, and approve.\n');
+    if (workspaceNameHint !== undefined && start.hintsDelivered) {
+      say(`  3. Sign in. Under "Create a new workspace", check the name (${workspaceNameHint}) and click Create.`);
+      say('  4. With the new workspace selected, choose Whole workspace, pick the scopes and approve.\n');
+    } else say('  3. Sign in, choose the workspace and its projects (or Whole workspace), and approve.\n');
+    if ((workspaceHint !== undefined || workspaceNameHint !== undefined) && !start.hintsDelivered)
+      say(`This Zenith instance speaks link protocol 1, so the workspace hint was not sent.${workspaceNameHint !== undefined ? ` Create the workspace first at ${origin}/onboarding, then choose it on the page.` : ' Choose the workspace on the page.'}\n`);
     say(`Waiting for approval (expires in ${Math.round(start.expiresIn / 60)} minutes). Press Ctrl-C to stop.`);
     if (!booleans.has('--no-browser')) (io.open ?? (url => openBrowser(url, platform, env)))(start.verificationUriComplete);
     credential = await pollLink({
-      ...transport, deviceCode: start.deviceCode, interval: start.interval, expiresIn: start.expiresIn,
+      ...transport, deviceCode: start.deviceCode, interval: start.interval, expiresIn: start.expiresIn, protocolVersion: start.protocolVersion,
       ...(io.sleep ? { sleep: io.sleep } : {}),
     });
   } finally {
@@ -140,92 +186,109 @@ export async function loginCommand(args: string[], io: LoginIo = {}): Promise<vo
   }
 
   const allowWrites = allowWritesFor(credential.scopes);
-  const projectId = values['--project'] ?? (credential.projectIds.length === 1 ? credential.projectIds[0] : undefined);
-  if (projectId !== undefined && !credential.projectIds.includes(projectId))
+  // A whole-workspace grant is never pinned implicitly: a pin would hide every
+  // project created later and refuse workspace-level changes. An explicit
+  // --project still narrows, exactly as the server treats the header.
+  const projectId = values['--project'] ?? (!credential.allProjects && credential.projectIds.length === 1 ? credential.projectIds[0] : undefined);
+  if (projectId !== undefined && !credential.allProjects && !credential.projectIds.includes(projectId))
     throw new ClientError('scope_denied', 'The approval did not include that project. The credential is not stored; run `zenith login` again and approve it.');
   const scope = { version: 1 as const, workspaceId: credential.workspaceId, ...(projectId === undefined ? {} : { projectId }) };
+  const scopeMode = credential.allProjects ? 'workspace' : 'projects';
   const report: Record<string, unknown> = {
     linked: true, origin, credentialId: credential.credentialId, ...(credential.label === undefined ? {} : { label: credential.label }),
-    workspaceId: credential.workspaceId, projectIds: credential.projectIds, environmentIds: credential.environmentIds,
+    workspaceId: credential.workspaceId, scopeMode, allProjects: credential.allProjects, projectIds: credential.projectIds, environmentIds: credential.environmentIds,
     scopes: credential.scopes, expiresAt: credential.expiresAt, allowWrites,
+    ...(projectId === undefined ? {} : { pinnedProject: projectId }),
+    ...(workspaceHint !== undefined && workspaceHint !== credential.workspaceId ? { note: `The browser approved workspace ${credential.workspaceId}, not the hinted ${workspaceHint}.` } : {}),
     ...(io.activation === undefined ? {} : { activation: io.activation }),
     ...(isPreview(io.activation) ? { verification: PREVIEW_NOTICE } : {}),
   };
+  const preferred = preferredProfileName(origin, credential);
+  const file = values['--profiles'] ?? env.ZENITH_PROFILES_FILE ?? defaultProfilesFile(env, homedir(), platform);
+  const finish = (lines: string[]) => {
+    if (json) { out(JSON.stringify(report, null, 2)); return; }
+    printGranted(out, origin, allowWrites, credential, projectId);
+    for (const line of lines) out(line);
+  };
 
   if (platform === 'win32') {
+    const names = printEnv ? new Set<string>() : await profileNames(file, platform);
+    const name = await chooseName(explicitName, preferred, async candidate => names.has(candidate) || (values['--vault'] === undefined && await exists(defaultVaultPath(env, candidate))));
     const vault = values['--vault'] ?? defaultVaultPath(env, name);
+    if (printEnv) {
+      await storeVault(vault, credential.token);
+      const environment = {
+        ZENITH_API_VERSION: '2', ZENITH_URL: origin, ZENITH_WORKSPACE_ID: credential.workspaceId,
+        ...(projectId === undefined ? {} : { ZENITH_PROJECT_ID: projectId }),
+        ZENITH_TOKEN_VAULT: vault, ...(allowWrites ? { ZENITH_ALLOW_WRITES: '1' } : {}),
+        ...(allowLoopbackHttp ? { ZENITH_ALLOW_LOOPBACK_HTTP: '1' } : {}),
+      };
+      Object.assign(report, { credential: { kind: 'dpapi', path: vault }, profile: null, environment });
+      finish(['\nCredential stored (Windows CurrentUser DPAPI):', `  ${vault}`,
+        '\nSet these for the agent process, then restart it (explicit variables turn the named-profile lookup off):',
+        ...Object.entries(environment).map(([key, value]) => `  ${key}=${value}`)]);
+      return;
+    }
+    await refuseExistingProfile(file, name, platform);
     await storeVault(vault, credential.token);
-    const environment = {
-      ZENITH_API_VERSION: '2', ZENITH_URL: origin, ZENITH_WORKSPACE_ID: credential.workspaceId,
-      ...(projectId === undefined ? {} : { ZENITH_PROJECT_ID: projectId }),
-      ZENITH_TOKEN_VAULT: vault, ...(allowWrites ? { ZENITH_ALLOW_WRITES: '1' } : {}),
-      ...(allowLoopbackHttp ? { ZENITH_ALLOW_LOOPBACK_HTTP: '1' } : {}),
-    };
-    Object.assign(report, { credential: { kind: 'dpapi', path: vault }, profile: null, environment,
-      note: 'Named profiles are not available on Windows in this build; updateProfiles refuses on win32 until private-profile ACL validation exists.' });
-    if (json) { out(JSON.stringify(report, null, 2)); return; }
-    printGranted(out, origin, allowWrites, credential);
-    out('\nCredential stored (Windows CurrentUser DPAPI):');
-    out(`  ${vault}`);
-    out('\nNamed profiles are not available on Windows in this build. Set these for the agent process:');
-    for (const [key, value] of Object.entries(environment)) out(`  ${key}=${value}`);
+    await persistProfile(file, name, { origin, scope, allowLoopbackHttp, allowWrites, credentialKind: 'opaque', credential: { kind: 'dpapi', path: vault } },
+      () => rm(vault, { force: true }), platform);
+    Object.assign(report, { credential: { kind: 'dpapi', path: vault }, profile: { name, file, active: true } });
+    finish([`\n  Profile     ${name}  (${file}, now active)`, `  Credential  ${vault}  (Windows CurrentUser DPAPI)`, ...nextSteps(env, file, platform)]);
     return;
   }
 
   if (booleans.has('--keychain')) {
     if (platform !== 'darwin') throw new ClientError('keychain_platform', 'macOS Keychain credentials require macOS; use the private token file on other POSIX hosts.');
+    const names = await profileNames(file, platform);
+    const name = await chooseName(explicitName, preferred, async candidate => names.has(candidate));
     const service = values['--keychain-service'] ?? `zenith:${new URL(origin).hostname}`;
     const account = values['--keychain-account'] ?? name;
+    await refuseExistingProfile(file, name, platform);
     await storeKeychain(service, account, credential.token);
-    const file = values['--profiles'] ?? env.ZENITH_PROFILES_FILE ?? defaultProfilesFile(env);
-    await persistProfile(file, name, { origin, scope, allowLoopbackHttp, allowWrites, credentialKind: 'opaque', credential: { kind: 'keychain', service, account } }, async () => {});
-    Object.assign(report, { credential: { kind: 'keychain', service, account }, profile: { name, file } });
-    if (json) { out(JSON.stringify(report, null, 2)); return; }
-    printGranted(out, origin, allowWrites, credential);
-    out(`\n  Profile     ${name}  (${file})`);
-    out(`  Credential  macOS Keychain ${service} / ${account}`);
-    printEnvironment(out, file);
+    await persistProfile(file, name, { origin, scope, allowLoopbackHttp, allowWrites, credentialKind: 'opaque', credential: { kind: 'keychain', service, account } }, async () => {}, platform);
+    Object.assign(report, { credential: { kind: 'keychain', service, account }, profile: { name, file, active: true } });
+    finish([`\n  Profile     ${name}  (${file}, now active)`, `  Credential  macOS Keychain ${service} / ${account}`, ...nextSteps(env, file, platform)]);
     return;
   }
 
-  const file = values['--profiles'] ?? env.ZENITH_PROFILES_FILE ?? defaultProfilesFile(env);
-  const tokenFile = path.join(path.dirname(file), `${name}.token`);
-  await refuseExistingProfile(file, name);
+  const names = await profileNames(file, platform);
+  const tokenFor = (candidate: string) => path.join(path.dirname(file), `${candidate}.token`);
+  const name = await chooseName(explicitName, preferred, async candidate => names.has(candidate) || await exists(tokenFor(candidate)));
+  const tokenFile = tokenFor(name);
+  await refuseExistingProfile(file, name, platform);
   await writeTokenFile(tokenFile, credential.token);
   await persistProfile(file, name, { origin, scope, allowLoopbackHttp, allowWrites, credentialKind: 'opaque', credential: { kind: 'file', path: tokenFile } },
-    () => unlink(tokenFile).catch(() => {}));
-  Object.assign(report, { credential: { kind: 'file', path: tokenFile }, profile: { name, file } });
-  if (json) { out(JSON.stringify(report, null, 2)); return; }
-  printGranted(out, origin, allowWrites, credential);
-  out(`\n  Profile     ${name}  (${file})`);
-  out(`  Credential  ${tokenFile}  (0600)`);
-  printEnvironment(out, file);
+    () => unlink(tokenFile).catch(() => {}), platform);
+  Object.assign(report, { credential: { kind: 'file', path: tokenFile }, profile: { name, file, active: true } });
+  finish([`\n  Profile     ${name}  (${file}, now active)`, `  Credential  ${tokenFile}  (0600)`, ...nextSteps(env, file, platform)]);
 }
 
-/** A best-effort pre-check so a refusal does not leave an orphan token file behind.
+/** A best-effort pre-check so a refusal does not leave an orphan credential behind.
  *  The authoritative, race-free check is inside writeProfile's locked update. */
-async function refuseExistingProfile(file: string, name: string): Promise<void> {
+async function refuseExistingProfile(file: string, name: string, platform: NodeJS.Platform): Promise<void> {
   let document: Profiles;
-  try { document = await loadProfiles(file); } catch { return; }
+  try { document = await loadProfiles(file, platform); } catch { return; }
   if (Object.hasOwn(document.profiles, name))
     throw new ClientError('profile_exists', `A profile named ${name} already exists in ${file}. Pass --name for a new one, or run \`zenith logout --name ${name}\` first.`);
 }
-async function persistProfile(file: string, name: string, definition: unknown, rollback: () => Promise<void>): Promise<void> {
-  try { await writeProfile(file, name, definition); }
+async function persistProfile(file: string, name: string, definition: unknown, rollback: () => Promise<void>, platform: NodeJS.Platform): Promise<void> {
+  try { await writeProfile(file, name, definition, { activate: true, platform }); }
   catch (error) { await rollback(); throw error; }
 }
-function printGranted(out: (line: string) => void, origin: string, allowWrites: boolean, credential: IssuedCredential): void {
+function printGranted(out: (line: string) => void, origin: string, allowWrites: boolean, credential: IssuedCredential, pinned: string | undefined): void {
   out(`\nLinked to ${origin}${credential.label ? ` as ${credential.label}` : ''}.`);
   out(`  Workspace   ${credential.workspaceId}`);
-  out(`  Projects    ${credential.projectIds.join(', ')}`);
+  out(`  Projects    ${credential.allProjects ? 'Whole workspace: every current and future project, plus workspace settings' : credential.projectIds.join(', ')}`);
+  if (pinned !== undefined) out(`  Pinned      ${pinned}`);
   out(`  Scopes      ${credential.scopes.join(', ')}`);
   out(`  Expires     ${credential.expiresAt}  (${days(credential.expiresAt, Date.now())} days)`);
   out(`  Writes      ${allowWrites ? 'enabled by the browser approval' : 'not granted'}`);
 }
-function printEnvironment(out: (line: string) => void, file: string): void {
-  out('\nSet these for the agent process, then restart it:');
-  out('  ZENITH_API_VERSION=2');
-  out(`  ZENITH_PROFILES_FILE=${file}`);
+/** The server finds the default file by itself; any other file must be named for it. */
+function nextSteps(env: NodeJS.ProcessEnv, file: string, platform: NodeJS.Platform): string[] {
+  if (file === defaultProfilesFile(env, homedir(), platform) || env.ZENITH_PROFILES_FILE === file) return [`\n${RELOAD_NOTE}`];
+  return ['\nThis is not the default profiles file. Set these for the agent process, then restart it once:', '  ZENITH_API_VERSION=2', `  ZENITH_PROFILES_FILE=${file}`, `After that: ${RELOAD_NOTE}`];
 }
 
 export async function logoutCommand(args: string[], io: LoginIo = {}): Promise<void> {
@@ -235,16 +298,15 @@ export async function logoutCommand(args: string[], io: LoginIo = {}): Promise<v
   const origin = values['--url'] ?? env.ZENITH_URL ?? DEFAULT_ORIGIN;
   const removed: string[] = [];
 
-  if (platform === 'win32') {
-    const name = values['--name'] ?? defaultProfileName(new URL(origin).origin);
-    const vault = values['--vault'] ?? defaultVaultPath(env, name);
-    await rm(vault, { force: true });
-    removed.push(vault);
+  if (platform === 'win32' && values['--vault'] !== undefined) {
+    // The `--print-env` layout: a vault with no profile referencing it.
+    await rm(values['--vault'], { force: true });
+    removed.push(values['--vault']);
   } else {
-    const file = values['--profiles'] ?? env.ZENITH_PROFILES_FILE ?? defaultProfilesFile(env);
+    const file = values['--profiles'] ?? env.ZENITH_PROFILES_FILE ?? defaultProfilesFile(env, homedir(), platform);
     let document: Profiles;
-    try { document = await loadProfiles(file); }
-    catch { throw new ClientError('profile_missing', `No named profiles were found at ${file}. Nothing was removed.`); }
+    try { document = await loadProfiles(file, platform); }
+    catch { throw new ClientError('profile_missing', `No named profiles were found at ${file}. Nothing was removed.${platform === 'win32' ? ' A --print-env login is removed with --vault PATH.' : ''}`); }
     const name = values['--name'] ?? document.active;
     const profile = Object.hasOwn(document.profiles, name) ? document.profiles[name] : undefined;
     if (!profile) throw new ClientError('profile_missing', `No profile named ${name} exists in ${file}. Nothing was removed.`);
@@ -255,9 +317,9 @@ export async function logoutCommand(args: string[], io: LoginIo = {}): Promise<v
         const profiles = { ...current.profiles }; delete profiles[name];
         const active = current.active === name ? Object.keys(profiles)[0]! : current.active;
         return { ...current, active, profiles };
-      });
-      const next = (await loadProfiles(file)).active;
-      out(`Removed profile ${name}. The active profile is now ${next}; restart the agent for it to take effect.`);
+      }, platform);
+      const next = (await loadProfiles(file, platform)).active;
+      out(`Removed profile ${name}. The active profile is now ${next}; a running Zenith MCP server switches on its next call.`);
     } else {
       // A profile document must name an existing active profile, so the last
       // profile cannot be represented as an empty one. Remove the file under

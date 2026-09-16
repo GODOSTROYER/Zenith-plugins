@@ -16,19 +16,25 @@ export function sameFileIdentity(before, after, platform = process.platform) {
   return device(before.dev) === device(after.dev) && before.ino === after.ino;
 }
 /** Bound allocation and reads even if a file grows after stat; refuse FIFOs and final symlinks. */
-export async function readBoundedFile(filePath, maxBytes, privateFile = false) {
+/** `aclVerified`: Windows only, for a file whose directory and file ACLs the native
+ * helper has just verified (named profiles). Such a volume may still report no
+ * device identity; the file index must then be non-zero and match across the
+ * path and handle stats. Every other caller keeps the zero-device refusal. */
+export async function readBoundedFile(filePath, maxBytes, privateFile = false, aclVerified = false) {
   if (!isAbsolute(filePath)) fail('configuration_path', 'Use an explicit absolute file path. No repository discovery occurs.');
   if (privateFile && process.platform === 'win32') fail('file_acl_unverified', 'Private-file ACL validation is not implemented on Windows. Use the explicit environment credential configuration.');
   const before = await lstat(filePath, { bigint: true });
   if (!before.isFile() || before.isSymbolicLink()) fail('unsafe_file', 'Configuration and credentials must be regular files, not links or devices.');
   // Some Windows path-stat implementations report no device identity. Never
   // treat zero as a wildcard or compare only an inode across volumes.
-  if (process.platform === 'win32' && before.dev === 0n)
+  const noDevice = process.platform === 'win32' && before.dev === 0n;
+  if (noDevice && !(aclVerified && before.ino !== 0n))
     fail('file_identity_unverified', 'This Windows runtime does not report a verifiable file device identity. Use explicit scope environment variables instead of an association file.');
   const file = await open(filePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
   try {
     const stat = await file.stat({ bigint: true });
-    if (!stat.isFile() || !sameFileIdentity(before, stat) || stat.size > BigInt(maxBytes))
+    const same = noDevice ? stat.ino === before.ino : sameFileIdentity(before, stat);
+    if (!stat.isFile() || !same || stat.size > BigInt(maxBytes))
       fail('unsafe_file', 'The file changed identity or exceeds its size limit.');
     if (privateFile && ((stat.mode & 0o077n) !== 0n || stat.uid !== BigInt(process.getuid())))
       fail('credential_permissions', 'Use an owned private regular file with mode 0600.');

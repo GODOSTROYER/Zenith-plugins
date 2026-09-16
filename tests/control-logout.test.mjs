@@ -24,7 +24,8 @@ function offline(t){
   globalThis.fetch=()=>{throw new Error('logout must not make a network request');};
   t.after(()=>{globalThis.fetch=real;});
 }
-const POSIX=process.platform==='win32'?'Private POSIX profiles; updateProfiles refuses on win32 (profiles.ts). The DPAPI half of this file runs instead.':false;
+const POSIX=process.platform==='win32'?'POSIX token-file profiles; the Windows tests below cover the DPAPI layouts.':false;
+const {loadProfiles}=await tsImport('../packages/control/profiles.ts',import.meta.url);
 
 test('logout removes one profile, keeps the others and hands the active flag on',{skip:POSIX},async t=>{
   offline(t);
@@ -32,7 +33,8 @@ test('logout removes one profile, keeps the others and hands the active flag on'
   const file=path.join(dir,'profiles.json');
   await loginCommand(['--url',ORIGIN,'--profiles',file,'--name','first','--no-browser'],loginIo());
   await loginCommand(['--url',ORIGIN,'--profiles',file,'--name','second','--no-browser'],loginIo());
-  assert.equal(JSON.parse(await readFile(file,'utf8')).active,'first');
+  // login makes the profile it just wrote the active one.
+  assert.equal(JSON.parse(await readFile(file,'utf8')).active,'second');
   const harness=logoutIo();
   await logoutCommand(['--url',ORIGIN,'--profiles',file,'--name','first'],harness.options);
   const document=JSON.parse(await readFile(file,'utf8'));
@@ -77,7 +79,7 @@ test('--revoke opens the browser page because a credential may never revoke itse
   assert.deepEqual(harness.opened,[`${ORIGIN}/integrations`]);
 });
 
-test('Windows logout removes the DPAPI vault and still says revocation happens in the browser',{skip:process.platform!=='win32'?'Windows DPAPI path; a skipped POSIX run is not Windows evidence':false,timeout:60000},async t=>{
+test('Windows logout --vault removes a --print-env DPAPI vault and still says revocation happens in the browser',{skip:process.platform!=='win32'?'Windows DPAPI path; a skipped POSIX run is not Windows evidence':false,timeout:60000},async t=>{
   offline(t);
   const dir=await mkdtemp(path.join(tmpdir(),'zenith-logout-dpapi-'));t.after(()=>rm(dir,{recursive:true,force:true}));
   const vault=path.join(dir,'private','zen.dpapi');
@@ -92,4 +94,22 @@ test('Windows logout removes the DPAPI vault and still says revocation happens i
   assert.ok(printed.includes(`${ORIGIN}/integrations`));
   // Removing a vault that is already gone is not an error: logout is idempotent.
   await logoutCommand(['--url',ORIGIN,'--vault',vault,'--name','zen'],logoutIo({platform:'win32'}).options);
+});
+
+test('Windows logout removes a DPAPI profile and its vault, and hands the active flag on',{skip:process.platform!=='win32'?'Windows profile ACLs and DPAPI; a skipped POSIX run is not Windows evidence':false,timeout:120000},async t=>{
+  offline(t);
+  const dir=await mkdtemp(path.join(tmpdir(),'zenith-logout-winprofile-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+  const file=path.join(dir,'cfg','profiles.json'),vaults=path.join(dir,'vaults');
+  const winLogin=()=>({...loginIo(),platform:'win32',env:{LOCALAPPDATA:vaults}});
+  await loginCommand(['--url',ORIGIN,'--profiles',file,'--name','first','--no-browser'],winLogin());
+  await loginCommand(['--url',ORIGIN,'--profiles',file,'--name','second','--no-browser'],winLogin());
+  assert.equal((await loadProfiles(file)).active,'second');
+  const harness=logoutIo({platform:'win32'});
+  await logoutCommand(['--url',ORIGIN,'--profiles',file],harness.options);
+  const document=await loadProfiles(file);
+  assert.deepEqual(Object.keys(document.profiles),['first']);
+  assert.equal(document.active,'first');
+  await assert.rejects(stat(path.join(vaults,'ZenithPrivate','second.dpapi')));
+  assert.equal((await stat(path.join(vaults,'ZenithPrivate','first.dpapi'))).isFile(),true);
+  assert.ok(harness.out.join('\n').includes('does not revoke it'));
 });

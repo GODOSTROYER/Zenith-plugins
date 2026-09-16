@@ -2,7 +2,9 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { association, endpoint, ClientError, isObject } from './index.js';
 export const CONTROL_VERSION = 2;
-export const CONTROL_TOOLS = Object.freeze(['zenith_prepare_change', 'zenith_execute_operation', 'zenith_get_operation', 'zenith_list_operations', 'zenith_get_operation_events', 'zenith_list_revisions', 'zenith_compare_revisions', 'zenith_get_logs', 'zenith_incident_bundle', 'zenith_get_app', 'zenith_get_edit_fields']);
+export const CONTROL_TOOLS = Object.freeze(['zenith_prepare_change', 'zenith_execute_operation', 'zenith_get_operation', 'zenith_list_operations', 'zenith_get_operation_events', 'zenith_list_revisions', 'zenith_compare_revisions', 'zenith_get_logs', 'zenith_incident_bundle', 'zenith_get_app', 'zenith_get_edit_fields',
+    // Workspace coverage (additive within contract v2): reads and browser hand-offs only. Every change still goes through zenith_prepare_change.
+    'zenith_list_workspaces', 'zenith_get_workspace', 'zenith_list_blueprints', 'zenith_list_secrets', 'zenith_get_alerts', 'zenith_get_audit', 'zenith_investigate', 'zenith_get_health', 'zenith_get_service_logs', 'zenith_discover_resources', 'zenith_list_apps', 'zenith_get_handoff']);
 export const READER_TOOLS = Object.freeze(['zenith_get_context', 'zenith_get_capabilities', 'zenith_list_projects', 'zenith_get_project', 'zenith_get_manifest', 'zenith_list_environments', 'zenith_plan_deploy', 'zenith_list_deployments', 'zenith_get_deployment', 'zenith_get_events', 'zenith_get_findings', 'zenith_get_drift', 'zenith_export_project']);
 const WRITES = new Set(['zenith_prepare_change', 'zenith_execute_operation']);
 const allowed = (name) => CONTROL_TOOLS.includes(name) || READER_TOOLS.includes(name);

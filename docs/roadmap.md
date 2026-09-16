@@ -29,7 +29,7 @@ Still open here: the link flow requires the backend link endpoints and its crede
 - [ ] Distributed quotas/rate limiting, durable notification/webhook outbox and aggregate service metrics/alert delivery.
 - [ ] GitHub PR plan-comment/check automation. Source provenance is recorded, but no GitHub access is requested and no comment bot exists.
 - [ ] A bundled OAuth authorization service or bridge-managed browser-login/refresh workflow. Use your maintained provider/native client's OAuth flow; the resource server is implemented.
-- [ ] Private named-profile ACL storage on Windows. Windows DPAPI credential storage is separate and implemented.
+- [x] Private named-profile ACL storage on Windows (protected user/SYSTEM-only directory and file, checked by the DPAPI helper), and profile switching without a server restart.
 - [ ] Full strict type coverage of the retained legacy v1 JavaScript files. The new v2 client/runtime are strictly checked.
 - [ ] Public directory submission, release publication and a chosen project license; these require owner decisions/authorization.
 

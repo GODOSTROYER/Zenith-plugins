@@ -1,5 +1,6 @@
 /**
- * Browser link (device) flow client, protocol version 1.
+ * Browser link (device) flow client, protocol version 2 with a one-step
+ * fallback to version 1.
  *
  * Nothing here reads, writes or stores a credential: these endpoints exist
  * precisely because one does not exist yet, so they take no `authorization`
@@ -12,7 +13,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { ClientError, isObject, endpoint, LINK_PROTOCOL_VERSION } from '../client/dist/index.js';
+import { ClientError, isObject, endpoint, LINK_PROTOCOL_VERSION, MIN_LINK_PROTOCOL_VERSION } from '../client/dist/index.js';
 
 /** The six scope names the backend accepts. A link may be granted a subset. */
 export const SCOPE_NAMES: readonly string[] = Object.freeze(['read', 'plan', 'write', 'logs', 'export', 'publish']);
@@ -25,6 +26,10 @@ const IDENTIFIER = /^[A-Za-z0-9_-]{1,100}$/;
 const LABEL = /^[A-Za-z0-9._-]{1,40}$/;
 const CLIENT_NAME = /^[A-Za-z0-9 ._-]{1,60}$/;
 const CLIENT_VERSION = /^[A-Za-z0-9 ._+-]{1,40}$/;
+/** A workspace name the approval page prefills. Plain text only; the page shows it as unverified. */
+export const WORKSPACE_NAME_HINT = /^[A-Za-z0-9][A-Za-z0-9 ._'-]{0,59}$/;
+/** The slug a profile may be named after: the profile-name alphabet. */
+const PROFILE_SLUG = /^[A-Za-z0-9_-]{1,40}$/;
 const ERROR_CODE = /^[a-z][a-z0-9_]{0,39}$/;
 /** RFC 3986 unreserved + reserved + percent. Anything else is not a URL we print or open. */
 const URL_CHARACTERS = /^[A-Za-z0-9:/?#[\]@!$&'()*+,;=._~%-]+$/;
@@ -38,17 +43,26 @@ export interface LinkStart {
   verificationUriComplete: string;
   interval: number;
   expiresIn: number;
+  /** The wire version this exchange uses; the poll must send the same one. */
+  protocolVersion: number;
+  /** False when the server only speaks version 1, so any workspace hint was not delivered. */
+  hintsDelivered: boolean;
 }
 export interface IssuedCredential {
   token: string;
   credentialId: string;
   origin: string;
   workspaceId: string;
+  /** Empty exactly when `allProjects` is true. */
   projectIds: string[];
+  /** The browser granted every current and future project in the workspace. */
+  allProjects: boolean;
   environmentIds: string[] | null;
   scopes: string[];
   expiresAt: string;
   label?: string;
+  /** Present only when the server named it and it is a valid profile name. */
+  workspaceSlug?: string;
 }
 export interface LinkTransport {
   origin: string;
@@ -63,11 +77,17 @@ export interface StartOptions extends LinkTransport {
   clientVersion?: string;
   label?: string;
   requestedScopes?: readonly string[];
+  /** Preselect this workspace on the approval page if the signed-in user is a member. Never authority. */
+  workspaceHint?: string;
+  /** Prefill the page's "Create a new workspace" panel. Nothing is created without a click. */
+  workspaceNameHint?: string;
 }
 export interface PollOptions extends LinkTransport {
   deviceCode: string;
   interval: number;
   expiresIn: number;
+  /** The version the start exchange settled on. Defaults to LINK_PROTOCOL_VERSION. */
+  protocolVersion?: number;
   /** Injected in tests so a bounded state machine does not need real time. */
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   now?: () => number;
@@ -179,16 +199,39 @@ export async function startLink(options: StartOptions): Promise<LinkStart> {
   if (options.label !== undefined && !LABEL.test(options.label)) throw new ClientError('invalid_request', 'A link label must be 1-40 characters of letters, digits, dot, underscore or hyphen.');
   const requested = [...new Set(options.requestedScopes ?? DEFAULT_REQUESTED_SCOPES)];
   if (!requested.length || requested.some(scope => !SCOPE_NAMES.includes(scope))) throw new ClientError('invalid_request', `Requested scopes must come from: ${SCOPE_NAMES.join(', ')}.`);
-  const { status, value, retryAfter } = await post(options, '/api/agent/link/start', {
+  if (options.workspaceHint !== undefined && !IDENTIFIER.test(options.workspaceHint))
+    throw new ClientError('invalid_request', 'A workspace hint is a Zenith workspace ID: 1-100 letters, digits, underscore or hyphen.');
+  if (options.workspaceNameHint !== undefined && !WORKSPACE_NAME_HINT.test(options.workspaceNameHint))
+    throw new ClientError('invalid_request', 'A new workspace name is 1-60 characters of letters, digits, space, dot, apostrophe, underscore or hyphen, starting with a letter or digit.');
+  if (options.workspaceHint !== undefined && options.workspaceNameHint !== undefined)
+    throw new ClientError('invalid_request', 'Hint an existing workspace or a new one, not both.');
+  const common = {
     clientName: options.clientName,
     ...(options.clientVersion === undefined ? {} : { clientVersion: options.clientVersion }),
     ...(options.label === undefined ? {} : { label: options.label }),
-    requestedScopes: requested, protocolVersion: LINK_PROTOCOL_VERSION,
+    requestedScopes: requested,
+  };
+  let sent = LINK_PROTOCOL_VERSION;
+  let { status, value, retryAfter } = await post(options, '/api/agent/link/start', {
+    ...common, protocolVersion: sent,
+    ...(options.workspaceHint === undefined ? {} : { workspaceHint: options.workspaceHint }),
+    ...(options.workspaceNameHint === undefined ? {} : { workspaceNameHint: options.workspaceNameHint }),
   });
+  // A version-1 server refuses both the version integer and the hint fields as
+  // `invalid_request`. Ask once more in the oldest dialect, without hints. A
+  // refusal with any other cause fails the same way again, so this cannot loop
+  // or hide a real error.
+  if (status === 400 && isObject(value) && isObject(value.error) && value.error.code === 'invalid_request' && sent > MIN_LINK_PROTOCOL_VERSION) {
+    sent = MIN_LINK_PROTOCOL_VERSION;
+    ({ status, value, retryAfter } = await post(options, '/api/agent/link/start', { ...common, protocolVersion: sent }));
+  }
   if (status !== 200 && status !== 201) throw linkError(status, value, retryAfter);
   if (!isObject(value)) throw new ClientError('invalid_response', 'Zenith returned a malformed link start response.');
-  if (value.protocolVersion !== undefined && value.protocolVersion !== LINK_PROTOCOL_VERSION)
-    throw new ClientError('protocol_mismatch', `This connector speaks link protocol ${LINK_PROTOCOL_VERSION}. Upgrade the connector and Zenith together.`);
+  // The server names the version it will use for this request. It may answer
+  // lower than asked (never higher), and an unnamed answer means what was sent.
+  const negotiated = value.protocolVersion === undefined ? sent : value.protocolVersion;
+  if (typeof negotiated !== 'number' || !Number.isInteger(negotiated) || negotiated < MIN_LINK_PROTOCOL_VERSION || negotiated > sent)
+    throw new ClientError('protocol_mismatch', `This connector speaks link protocol ${MIN_LINK_PROTOCOL_VERSION}-${LINK_PROTOCOL_VERSION}. Upgrade the connector and Zenith together.`);
   if (typeof value.deviceCode !== 'string' || !DEVICE_CODE.test(value.deviceCode))
     throw new ClientError('invalid_response', 'Zenith did not return a usable link device code.');
   if (typeof value.userCode !== 'string' || !USER_CODE.test(value.userCode))
@@ -202,15 +245,27 @@ export async function startLink(options: StartOptions): Promise<LinkStart> {
     interval: typeof value.interval === 'number' && Number.isFinite(value.interval) ? clampInterval(value.interval) : 5,
     expiresIn: typeof value.expiresIn === 'number' && Number.isFinite(value.expiresIn)
       ? Math.min(MAX_EXPIRES, Math.max(MIN_EXPIRES, Math.trunc(value.expiresIn))) : 600,
+    protocolVersion: negotiated,
+    hintsDelivered: negotiated >= 2,
   };
 }
 
-function issued(value: Record<string, unknown>, origin: string, now: number): IssuedCredential {
-  const ids = (input: unknown, field: string): string[] => {
-    if (!Array.isArray(input) || !input.length || input.length > 500 || input.some(id => typeof id !== 'string' || !IDENTIFIER.test(id)))
+function issued(value: Record<string, unknown>, origin: string, now: number, version: number): IssuedCredential {
+  const ids = (input: unknown, field: string, allowEmpty = false): string[] => {
+    if (!Array.isArray(input) || (!allowEmpty && !input.length) || input.length > 500 || input.some(id => typeof id !== 'string' || !IDENTIFIER.test(id)))
       throw new ClientError('invalid_response', `Zenith returned unusable ${field}.`);
     return [...new Set(input as string[])];
   };
+  // Whole-workspace grants exist only in version 2, and there they come with an
+  // empty project list and no environment narrowing, exactly as the server
+  // stores them. Anything else is a malformed answer, not a wider grant.
+  if (value.allProjects !== undefined && typeof value.allProjects !== 'boolean')
+    throw new ClientError('invalid_response', 'Zenith returned an unusable project scope mode.');
+  const allProjects = value.allProjects === true;
+  if (allProjects && version < 2)
+    throw new ClientError('invalid_response', 'Zenith granted the whole workspace over link protocol 1. Upgrade the connector and Zenith together.');
+  if (allProjects && (!Array.isArray(value.projectIds) || value.projectIds.length !== 0 || (value.environmentIds !== null && value.environmentIds !== undefined)))
+    throw new ClientError('invalid_response', 'A whole-workspace grant must carry an empty project list and no environment narrowing.');
   if (typeof value.token !== 'string' || !BEARER.test(value.token))
     throw new ClientError('invalid_response', 'Zenith did not return a Zenith agent credential.');
   if (typeof value.credentialId !== 'string' || !IDENTIFIER.test(value.credentialId))
@@ -226,11 +281,13 @@ function issued(value: Record<string, unknown>, origin: string, now: number): Is
   if (!Number.isFinite(expiresAt) || expiresAt <= now || expiresAt - now > MAX_EXPIRY_MS)
     throw new ClientError('invalid_response', 'Zenith returned an expiry that is absent, already past, or beyond the 30-day ceiling.');
   const label = typeof value.label === 'string' && LABEL.test(value.label) ? value.label : undefined;
+  const workspaceSlug = typeof value.workspaceSlug === 'string' && PROFILE_SLUG.test(value.workspaceSlug) ? value.workspaceSlug : undefined;
   return {
     token: value.token, credentialId: value.credentialId, origin, workspaceId: value.workspaceId,
-    projectIds: ids(value.projectIds, 'project ids'),
+    projectIds: ids(value.projectIds, 'project ids', allProjects), allProjects,
     environmentIds: value.environmentIds === null || value.environmentIds === undefined ? null : ids(value.environmentIds, 'environment ids'),
     scopes, expiresAt: new Date(expiresAt).toISOString(), ...(label === undefined ? {} : { label }),
+    ...(workspaceSlug === undefined ? {} : { workspaceSlug }),
   };
 }
 
@@ -250,6 +307,9 @@ const wait = (ms: number, signal?: AbortSignal): Promise<void> => new Promise((r
 export async function pollLink(options: PollOptions): Promise<IssuedCredential> {
   const origin = linkOrigin(options.origin, options.allowLoopbackHttp === true);
   if (!DEVICE_CODE.test(options.deviceCode)) throw new ClientError('invalid_request', 'The device code is not a Zenith link code.');
+  const version = options.protocolVersion ?? LINK_PROTOCOL_VERSION;
+  if (!Number.isInteger(version) || version < MIN_LINK_PROTOCOL_VERSION || version > LINK_PROTOCOL_VERSION)
+    throw new ClientError('invalid_request', `Link protocol ${MIN_LINK_PROTOCOL_VERSION}-${LINK_PROTOCOL_VERSION} only.`);
   const now = options.now ?? Date.now, sleep = options.sleep ?? wait;
   const limit = Math.min(MAX_POLLS, Math.max(1, Math.trunc(options.maxRequests ?? MAX_POLLS)));
   const deadline = now() + Math.min(MAX_EXPIRES, Math.max(MIN_EXPIRES, Math.trunc(options.expiresIn))) * 1000;
@@ -262,7 +322,7 @@ export async function pollLink(options: PollOptions): Promise<IssuedCredential> 
     options.onWait?.(Math.round(pause / 1000));
     try { await sleep(pause, options.signal); }
     catch { throw new ClientError('link_cancelled', 'No credential was issued. Run `zenith login` again when you are ready.'); }
-    const { status, value, retryAfter } = await post(options, '/api/agent/link/token', { deviceCode: options.deviceCode, protocolVersion: LINK_PROTOCOL_VERSION });
+    const { status, value, retryAfter } = await post(options, '/api/agent/link/token', { deviceCode: options.deviceCode, protocolVersion: version });
     if (status !== 200) throw linkError(status, value, retryAfter);
     if (!isObject(value)) throw new ClientError('invalid_response', 'Zenith returned a malformed link token response.');
     const returned = typeof value.interval === 'number' && Number.isFinite(value.interval) ? Math.trunc(value.interval) : undefined;
@@ -271,7 +331,7 @@ export async function pollLink(options: PollOptions): Promise<IssuedCredential> 
     // The expiry is a wall-clock fact about the credential, not a fact about
     // this loop's timing, so it is checked against the real clock even when a
     // caller injects one for the poll deadline.
-    if (value.status === 'issued') return issued(value, origin, Date.now());
+    if (value.status === 'issued') return issued(value, origin, Date.now(), version);
     throw new ClientError('invalid_response', 'Zenith returned an unknown link status.');
   }
   throw new ClientError('link_poll_limit', `No decision after ${limit} checks. Nothing was stored. Run \`zenith login\` again.`);

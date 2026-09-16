@@ -25,7 +25,7 @@ const VERSION_COMMANDS = new Set(['--version', 'version']);
 const UNGATED_COMMANDS = new Set([...HELP_COMMANDS, ...VERSION_COMMANDS]);
 
 const HELP_TEXT = 'Zenith connector: login | logout | status | stdio | doctor | setup | --help | --version\n'
-  + 'Link a Zenith account in the browser: login [--url ORIGIN] [--name NAME] [--no-browser] [--json]. It prints a URL and a code, waits for the approval, then stores the issued credential. logout removes the local credential; revoke in the browser at ORIGIN/integrations.\n'
+  + 'Link a Zenith account in the browser: login [--url ORIGIN] [--name NAME] [--workspace ID | --new-workspace NAME] [--no-browser] [--json]. It prints a URL and a code, waits for the approval, then stores the issued credential in a named profile and makes it active. profile use NAME switches profiles; a running server follows on its next call. logout removes the local credential; revoke in the browser at ORIGIN/integrations.\n'
   + 'Use ZENITH_CONFIG_FILE, or explicit ZENITH_URL / ZENITH_WORKSPACE_ID / ZENITH_TOKEN_FILE (or ZENITH_TOKEN).\n'
   + 'Setup: setup --output ABSOLUTE_PATH --url TRUSTED_ORIGIN --workspace ID --token-file ABSOLUTE_PATH [--project ID] [--environment ID] [--allow-loopback-http]\n'
   + 'Setup creates a new private profile, never a credential or deployment. No implicit repository configuration.\n'

@@ -33,7 +33,8 @@ async function packaged(dir, args, extra = {}) {
   const env = { ...process.env };
   for (const key of Object.keys(env)) if (key.startsWith('ZENITH_')) delete env[key];
   const empty = await mkdtemp(path.join(tmpdir(), 'zenith empty config '));
-  Object.assign(env, { XDG_CONFIG_HOME: empty }, extra);
+  // APPDATA is the Windows home of the default profiles file; never read the real one.
+  Object.assign(env, { XDG_CONFIG_HOME: empty, APPDATA: empty }, extra);
   try { return await execFileAsync(process.execPath, [path.join(dir, 'runtime/bridge/cli.mjs'), ...args], { env, timeout: 20_000 }); }
   finally { await rm(empty, { recursive: true, force: true }); }
 }
@@ -147,7 +148,7 @@ test('login leads with the preview line and carries it into the client identity 
   const windows = process.platform === 'win32';
   options.platform = process.platform;
   const destination = windows
-    ? ['--vault', path.join(home, 'private', 'preview.dpapi')]
+    ? ['--vault', path.join(home, 'private', 'preview.dpapi'), '--print-env']
     : ['--profiles', path.join(home, 'profiles.json'), '--name', 'preview'];
   await loginCommand(['--url', ORIGIN, '--no-browser', '--json', ...destination], options);
 
@@ -178,7 +179,7 @@ test('login leads with the preview line and carries it into the client identity 
  * the credential it had just written.
  */
 test('a linked profile in the user configuration directory is found without an explicit variable', {
-  skip: process.platform === 'win32' ? 'Named profiles are POSIX-only in this build; Windows login prints an environment block instead.' : false,
+  skip: process.platform === 'win32' ? 'POSIX modes on a mkdtemp directory; the Windows default-file lookup is covered in control-profiles.test.mjs.' : false,
 }, async t => {
   const { profileCommand } = await tsImport('../packages/control/profiles.ts', import.meta.url);
   const { resolveProfilesFile, controlClient } = await tsImport('../packages/control/profiles.ts', import.meta.url);
