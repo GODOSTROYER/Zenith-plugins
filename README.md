@@ -101,6 +101,22 @@ npm run contracts:check -- --backend /absolute/path/to/zenith
 
 The TypeScript client and the v2 runtime are strict-checked. `plugins/` is generated: change `shared/` or `packages/` and run `npm run build`, never edit a generated file. Both packages ship their own runtime bundles and dependency notices, so installing one needs no compiler and no dependency install.
 
+### Repository layout
+
+Companion to **[GODOSTROYER/zenith](https://github.com/GODOSTROYER/zenith)**: Zenith owns the authenticated endpoint, actions, permissions and storage; this repository owns the client, the local stdio process and the shared skills.
+
+| Path | What is in it |
+| --- | --- |
+| `packages/client` | the typed transport client and the versioned v2 control tool inventory |
+| `packages/control` | the v2 runtime: stdio server, `login` / `logout` / `status`, profiles, credential vaults, source packaging |
+| `packages/bridge` | the `login`, `setup`, `doctor`, `profile`, `source` and `stdio` commands |
+| `packages/launcher` | `zenith-plugin-launcher`, which activates a verified private copy of a signed release |
+| `packages/provenance` | the signing and verification primitives behind that gate |
+| `shared/skills` | the twelve workflow skills both plugins are generated from |
+| `plugins/claude-code`, `plugins/codex` | the generated packages, committed so installing one needs no compiler |
+| `contracts/control-v2.json` | the snapshot `npm run contracts:check` holds the backend to |
+| `tests` | the `node --test` suites for everything above |
+
 ## Boundaries
 
-Zenith owns authentication, authorisation, actions and persistence. The plugin never opens Zenith's stores or impersonates Navigator. Writes currently require a long-lived single-writer POSIX Zenith file-store deployment; PostgreSQL writes and serverless control are explicitly refused. Remote OAuth requires your own configured authorisation provider and a matching browser grant — these are not public hosted-service credentials. Native client installation and real provider acceptance are separate from the automated fixture evidence in this repository. No project license grant has been selected.
+Zenith owns authentication, authorisation, actions and persistence. The plugin never opens Zenith's stores or impersonates Navigator. On tryzenith.cloud, reviewed writes run on the hosted PostgreSQL control plane; a self-hosted Zenith needs either that control plane or a long-lived single-writer file-store host, and refuses writes otherwise. Every write is a proposal approved in the browser; the agent cannot approve its own. Remote OAuth with your own authorisation provider remains available as an alternative to `login`. No project license grant has been selected.
