@@ -33,7 +33,7 @@ export async function readBoundedFile(filePath, maxBytes, privateFile = false, a
   const file = await open(filePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
   try {
     const stat = await file.stat({ bigint: true });
-    const same = noDevice ? stat.dev === 0n && stat.ino === before.ino : sameFileIdentity(before, stat);
+    const same = noDevice ? stat.ino === before.ino : sameFileIdentity(before, stat);
     if (!stat.isFile() || !same || stat.size > BigInt(maxBytes))
       fail('unsafe_file', 'The file changed identity or exceeds its size limit.');
     if (privateFile && ((stat.mode & 0o077n) !== 0n || stat.uid !== BigInt(process.getuid())))
