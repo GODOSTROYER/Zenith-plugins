@@ -9,6 +9,7 @@ zenith login    [--url ORIGIN] [--name NAME] [--profiles ABSOLUTE_FILE] [--proje
                 [--label NAME] [--scopes read,plan,write,logs] [--keychain]
                 [--keychain-service SERVICE] [--keychain-account ACCOUNT]
                 [--vault ABSOLUTE_WINDOWS_PATH] [--loopback 0|1] [--no-browser] [--json]
+                [--workspace ID | --new-workspace NAME] [--print-env]
 zenith logout   [--url ORIGIN] [--name NAME] [--profiles ABSOLUTE_FILE] [--vault ABSOLUTE_WINDOWS_PATH] [--revoke]
 zenith status   [--json]
 ```
@@ -16,9 +17,12 @@ zenith status   [--json]
 | Flag | Meaning |
 | --- | --- |
 | `--url` | Trusted origin. Defaults to `ZENITH_URL`, then `https://tryzenith.cloud`. Validated exactly like every other destination: no credentials, path, query or fragment, and HTTPS unless a literal loopback origin is explicitly allowed |
-| `--name` | Profile and credential-file name. Defaults to the first label of the origin host (`tryzenith.cloud` → `tryzenith`) |
-| `--profiles` | Absolute private profiles file. Defaults to `ZENITH_PROFILES_FILE`, then `$XDG_CONFIG_HOME/zenith/profiles.json`, then `~/.config/zenith/profiles.json` |
-| `--project` | Pin one approved project into the profile scope. Refused, storing nothing, if the approval did not include it |
+| `--name` | Profile and credential-file name. Defaults to the workspace slug when Zenith returns one, else the first label of the origin host (`tryzenith.cloud` → `tryzenith`), stepping to `-2`, `-3`, … when taken. An explicit name never steps |
+| `--profiles` | Absolute private profiles file. Defaults to `ZENITH_PROFILES_FILE`, then `$XDG_CONFIG_HOME/zenith/profiles.json` or `~/.config/zenith/profiles.json` on POSIX, `%APPDATA%\zenith\profiles.json` on Windows |
+| `--project` | Pin one project into the profile scope. Refused, storing nothing, if an explicit project list did not include it. A whole-workspace grant is never pinned unless this is given |
+| `--workspace` | A workspace ID to preselect on the approval page. Only a hint: it applies only if you are a member, and you can still choose another |
+| `--new-workspace` | A 1-60 character name to prefill in the approval page's **Create a new workspace** panel. Nothing is created until you click Create. Cannot be combined with `--workspace` |
+| `--print-env` | Windows only: store the vault and print the environment block instead of writing a named profile |
 | `--scopes` | Comma-separated hint sent to the approval page. The browser may reduce it and may not exceed it |
 | `--keychain` | macOS only: store the credential in the login Keychain instead of a private file |
 | `--vault` | Windows only: an explicit DPAPI vault path instead of `%LOCALAPPDATA%\ZenithPrivate\<name>.dpapi` |
@@ -32,7 +36,9 @@ The device code is a secret. It is held in memory only: it reaches no file, no p
 
 **Local write enablement follows the granted scopes**, not a second local flag: `allowWrites` is set when the approval granted `write` or `publish`. The browser approval named the workspace, the projects and the scopes under a live signed-in identity, which is a stronger opt-in than `ZENITH_ALLOW_WRITES=1` was. The refusals that still matter are the server's: the catalog hides write tools when the backend's own write capability is off, and `zenith_execute_operation` still requires a browser-approved digest.
 
-Named profile files remain POSIX-only. On Windows `login` stores the CurrentUser DPAPI vault and prints the exact environment block to set (`ZENITH_API_VERSION`, `ZENITH_URL`, `ZENITH_WORKSPACE_ID`, optional `ZENITH_PROJECT_ID`, `ZENITH_TOKEN_VAULT`, and `ZENITH_ALLOW_WRITES=1` when writes were granted). Vault paths are create-only; a second `login` for the same name refuses with `vault_refused` rather than replacing a credential. Windows behaviour here is covered by the Windows job in CI; a skipped POSIX test is not Windows evidence, and a skipped Windows test is not POSIX evidence.
+On Windows `login` stores the CurrentUser DPAPI vault and writes a named profile referencing it in `%APPDATA%\zenith\profiles.json`. The profiles directory and file are checked by the same native helper that guards vaults: local, not links, owned by the current user, protected ACLs granting only that user and SYSTEM. A missing directory is created that way; an existing one with wider access is refused with `profile_acl` and never re-permissioned. `login --print-env` keeps the older layout: it stores the vault and prints the environment block (`ZENITH_API_VERSION`, `ZENITH_URL`, `ZENITH_WORKSPACE_ID`, optional `ZENITH_PROJECT_ID`, `ZENITH_TOKEN_VAULT`, and `ZENITH_ALLOW_WRITES=1` when writes were granted), and `logout --vault PATH` removes such a vault. Vault paths are create-only; an explicit `--name` or `--vault` that already exists refuses with `vault_refused` rather than replacing a credential. Windows behaviour here is covered by the Windows job in CI; a skipped POSIX test is not Windows evidence, and a skipped Windows test is not POSIX evidence.
+
+Every `login` makes its new profile the active one, and a running stdio server follows the active profile on its next call (see [control-v2](control-v2.md#switching-profiles-without-a-restart)).
 
 `logout` removes the local credential and the profile that referenced it, and hands the active flag to another profile; removing the last profile removes the profiles file, because a profile document must name an existing active profile and cannot represent zero. A credential it did not own — one another profile still references, or a Keychain item — is left in place and named in the output. **`logout` makes no network request.** The revoke endpoint is browser-only by design: it refuses any request carrying an `authorization` header, so a credential can never revoke itself. Revoke at `ORIGIN/integrations` → **Linked agents**.
 
@@ -83,7 +89,7 @@ This **trusted user profile** is different from a repository association. Do not
 
 IDs allow letters, digits, underscores and hyphens, up to 100 characters. Association files accept only `version: 1`, `workspaceId`, optional `projectId` and `environmentId`; they cannot choose origins or credentials. Version dev.2 rejects ambiguous configurations previously accepted with implicit precedence. Resolve ambiguity rather than depending on precedence.
 
-Windows private-file ACL validation is unimplemented, so profiles and token files fail closed on Windows. Explicit URL/scope/environment-token configuration remains available. ID-only association files are also refused with `file_identity_unverified` when the Windows runtime reports no device identity; use explicit scope environment variables rather than bypassing the check. OS CI is a compatibility check, not evidence of safe Windows credential-file storage.
+On Windows, v2 named-profile files are ACL-checked by the native helper (above). Plain token files and version-1 profile files still have no Windows ACL validation and fail closed there; use a DPAPI vault. Explicit URL/scope/environment-token configuration remains available. ID-only association files are also refused with `file_identity_unverified` when the Windows runtime reports no device identity; use explicit scope environment variables rather than bypassing the check. OS CI is a compatibility check, not evidence of safe Windows credential-file storage.
 
 ## Doctor and live checks
 
@@ -121,6 +127,9 @@ Zenith consumes `ZENITH_AGENT_READER=1`, `ZENITH_AGENT_ORIGIN` and `ZENITH_AGENT
 | `rate_limited` | Wait the seconds named in the message; no automatic retry storm is generated |
 | `profile_exists` / `credential_exists` | `login` never overwrites. Choose `--name`, or run `logout` first after revoking the old credential in the browser |
 | `vault_refused` | Windows vaults are create-only. Choose `--name`/`--vault`, or delete the old vault after revoking its credential |
+| `profile_acl` | The Windows profiles directory or file is not private (inherited or foreign access, a link, or another owner). Use a new directory, or point `ZENITH_PROFILES_FILE` into one; the connector never changes existing permissions |
+| `workspace_scope_required` | A workspace-level change needs a Whole-workspace link. Run `login` again and choose Whole workspace |
+| `secret_value_refused` | `env.set` refused a secret-looking key or value. Set secrets in the browser (`zenith_get_handoff` task `secret.set`) |
 | `scope_denied` | The approval did not include the project passed to `--project`. Nothing was stored |
 | `protocol_mismatch` (link) | The connector and Zenith disagree on the link protocol version; upgrade them together |
 | `invalid_response` (link) | Zenith returned an unusable link response — including a verification URL on a different origin, or an issued credential for a different origin. Nothing was stored |

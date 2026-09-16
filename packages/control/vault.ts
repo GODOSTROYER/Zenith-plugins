@@ -89,16 +89,42 @@ try {
     $raw = [Security.Cryptography.ProtectedData]::Unprotect($encrypted,$entropy,[Security.Cryptography.DataProtectionScope]::CurrentUser)
     try { if ($raw.Length -gt 16384) { throw 'credential size' }; [Console]::Out.Write([Convert]::ToBase64String($raw)) }
     finally { [Array]::Clear($raw,0,$raw.Length) }
+  } elseif ($r.verb -eq 'profile-prepare') {
+    # Before a profile edit. The directory is created private (owner, user and
+    # SYSTEM only, no inheritance) when absent; an existing directory is verified,
+    # never re-permissioned. An existing profiles file is verified too.
+    $stage = 'profile_directory'
+    $dir = [IO.Path]::GetDirectoryName($p)
+    if (!(Test-Path -LiteralPath $dir)) { [IO.Directory]::CreateDirectory($dir) | Out-Null; PrivateAcl $dir $true }
+    VerifyAcl $dir
+    if (Test-Path -LiteralPath $p) { $stage = 'profile_verify'; VerifyAcl $p }
+    [Console]::Out.Write('ok')
+  } elseif ($r.verb -eq 'profile-seal') {
+    # A profiles file just renamed into the verified private directory gets its own
+    # protected ACL, so a later read does not depend on inheritance.
+    $stage = 'profile_seal'
+    VerifyAcl ([IO.Path]::GetDirectoryName($p))
+    $stage = 'profile_seal'
+    if (([IO.File]::GetAttributes($p) -band ([IO.FileAttributes]::ReparsePoint -bor [IO.FileAttributes]::Directory)) -ne 0) { throw 'regular file required' }
+    PrivateAcl $p $false
+    VerifyAcl $p
+    [Console]::Out.Write('ok')
+  } elseif ($r.verb -eq 'profile-verify') {
+    $stage = 'profile_verify'
+    VerifyAcl ([IO.Path]::GetDirectoryName($p))
+    VerifyAcl $p
+    [Console]::Out.Write('ok')
   } else { throw 'unknown operation' }
 } catch { [Console]::Error.Write('zenith-vault:' + $stage); exit 1 }
 `;
-const stages = new Set(['start','load_crypto','read_input','parse_input','validate_path','identity','validate_token','create_directory','verify_directory','create_only','encrypt','write_file','protect_file','verify_file','read_file','decrypt','acl_attributes','acl_read','acl_inheritance','acl_owner','acl_rules']);
+const stages = new Set(['start','load_crypto','read_input','parse_input','validate_path','identity','validate_token','create_directory','verify_directory','create_only','encrypt','write_file','protect_file','verify_file','read_file','decrypt','acl_attributes','acl_read','acl_inheritance','acl_owner','acl_rules','profile_directory','profile_seal','profile_verify']);
+type Verb='store'|'read'|'profile-prepare'|'profile-seal'|'profile-verify';
 /** Only a constant stage identifier may cross the native error boundary. */
 export function vaultFailureStage(value:string):string {
   const match = /^zenith-vault:([a-z_]+)$/.exec(value.trim());
   return match && stages.has(match[1]!) ? match[1]! : 'unavailable';
 }
-export function vaultInput(verb:'store'|'read',file:string,token?:string):string {
+export function vaultInput(verb:Verb,file:string,token?:string):string {
   return JSON.stringify({verb,path:file,...(token===undefined?{}:{token})})
     .replace(/[\u007f-\uffff]/g, char => `\\u${char.charCodeAt(0).toString(16).padStart(4,'0')}`) + '\n';
 }
@@ -108,8 +134,9 @@ export function validateVaultPath(file:string):void {
     !part||/[<>:\"/|?*\x00-\x1f]/.test(part)||/[. ]$/.test(part)||/^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(part)))
     throw new ClientError('configuration_path','Use a normalized absolute local Windows vault path without devices, streams or ambiguous segments.');
 }
-async function invoke(verb:'store'|'read',file:string,token?:string):Promise<string>{
-  if(process.platform!=='win32')throw new ClientError('vault_platform','DPAPI credentials require Windows; use an owned private token file on POSIX.');
+async function invoke(verb:Verb,file:string,token?:string):Promise<string>{
+  const profile=verb.startsWith('profile-');
+  if(process.platform!=='win32')throw new ClientError(profile?'private_profile_unavailable':'vault_platform',profile?'Windows profile ACL checks run only on Windows.':'DPAPI credentials require Windows; use an owned private token file on POSIX.');
   validateVaultPath(file);
   const root=process.env.SystemRoot;
   if(!root||!/^[A-Za-z]:\\/.test(root))throw new ClientError('vault_unavailable','A trusted Windows SystemRoot is required.');
@@ -121,7 +148,9 @@ async function invoke(verb:'store'|'read',file:string,token?:string):Promise<str
     child.stdout.on('data',(b:Buffer)=>{output+=b.toString('utf8');if(output.length>32768)fail();});
     child.stderr.on('data',(b:Buffer)=>{diagnostic+=b.toString('utf8');if(diagnostic.length>8192)fail();});child.stdin.on('error',()=>{});
     child.once('error',()=>{clearTimeout(timer);reject(new ClientError('vault_unavailable','Windows credential protection could not start.'));});
-    child.once('close',code=>{clearTimeout(timer);if(code!==0||failed)reject(new ClientError('vault_refused',`DPAPI credential access refused at ${vaultFailureStage(diagnostic)}. Verify owned private ACLs, a local regular file, and the current Windows user. Existing vaults are never overwritten.`));else resolve(output);});
+    child.once('close',code=>{clearTimeout(timer);if(code!==0||failed)reject(profile
+      ?new ClientError('profile_acl',`Windows profile ACL check refused at ${vaultFailureStage(diagnostic)}. The profiles directory must be a local, non-link directory owned by you with protected user/SYSTEM-only access; an existing directory's permissions are never changed. Use a new directory, or ZENITH_PROFILES_FILE pointing into one.`)
+      :new ClientError('vault_refused',`DPAPI credential access refused at ${vaultFailureStage(diagnostic)}. Verify owned private ACLs, a local regular file, and the current Windows user. Existing vaults are never overwritten.`));else resolve(output);});
     // ASCII escaping avoids Windows code-page corruption without passing secrets as arguments.
     child.stdin.end(vaultInput(verb,file,token));
   });
@@ -130,4 +159,11 @@ export async function storeVault(file:string,token:string):Promise<void>{
   if(!/^(za_[A-Za-z0-9_-]{43}|[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/.test(token)||Buffer.byteLength(token)>16384)throw new ClientError('invalid_credential','Supply a bounded Zenith credential or OAuth JWT through stdin, not arguments.');
   await invoke('store',file,token);
 }
+const expectOk=async(verb:Verb,file:string):Promise<void>=>{if(await invoke(verb,file)!=='ok')throw new ClientError('profile_acl','Invalid Windows profile ACL response.');};
+/** Before an edit: create (private) or verify the profiles directory, and verify the file if it exists. */
+export async function prepareProfileFile(file:string):Promise<void>{await expectOk('profile-prepare',file);}
+/** Give a profiles file just written into a verified directory its own protected ACL. */
+export async function sealProfileFile(file:string):Promise<void>{await expectOk('profile-seal',file);}
+/** Refuse a Windows profiles file whose directory or file is not privately owned. */
+export async function verifyProfileFile(file:string):Promise<void>{await expectOk('profile-verify',file);}
 export async function readVault(file:string):Promise<string>{const value=await invoke('read',file);if(!/^[A-Za-z0-9+/]+={0,2}$/.test(value))throw new ClientError('vault_refused','Invalid protected credential response.');return Buffer.from(value,'base64').toString('utf8');}

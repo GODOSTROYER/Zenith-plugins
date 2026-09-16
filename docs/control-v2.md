@@ -4,17 +4,27 @@
 
 ## Linking an account from the terminal
 
-`zenith login` is the phase-1 path to a credential. It speaks the browser link (device) flow, wire version 1, against three endpoints that take no credential because one does not exist yet:
+`zenith login` is the phase-1 path to a credential. It speaks the browser link (device) flow, wire version 2 with a fallback to version 1, against three endpoints that take no credential because one does not exist yet:
 
-1. `POST {origin}/api/agent/link/start` with `{clientName, clientVersion, label, requestedScopes, protocolVersion: 1}`. `clientName` is detected from the host agent (`CLAUDE_PLUGIN_ROOT` → "Claude Code", `PLUGIN_ROOT`/`CODEX_HOME` → "Codex", otherwise "Zenith CLI"), never asked for in chat. The answer carries a secret device code, an 8-character user code, a verification URL and a poll interval.
-2. The user opens the verification URL, confirms the code matches the terminal, signs in, chooses the workspace, projects, scopes and expiry, and approves.
-3. `POST {origin}/api/agent/link/token` with `{deviceCode, protocolVersion: 1}`, polled at the server's interval until it answers `issued`, `access_denied` or `expired_token`. `authorization_pending` and `slow_down` continue the loop; `slow_down` may only raise the interval.
+1. `POST {origin}/api/agent/link/start` with `{clientName, clientVersion, label, requestedScopes, protocolVersion: 2}` plus, when asked, one of two unverified hints: `workspaceHint` (a workspace ID, from `login --workspace ID`) or `workspaceNameHint` (1-60 plain characters, from `login --new-workspace NAME`). `clientName` is detected from the host agent (`CLAUDE_PLUGIN_ROOT` → "Claude Code", `PLUGIN_ROOT`/`CODEX_HOME` → "Codex", otherwise "Zenith CLI"), never asked for in chat. The answer carries a secret device code, an 8-character user code, a verification URL, a poll interval and the protocol version the server will use. A version-1 server refuses the version-2 body with `invalid_request`; the connector then asks once more with `protocolVersion: 1` and no hints, and says the hint was not sent.
+2. The user opens the verification URL, confirms the code matches the terminal, signs in, chooses the workspace (the page preselects a hinted workspace only if the user is a member, and prefills a hinted name in its **Create a new workspace** panel; nothing is created without a click), chooses **Whole workspace** or **Only these projects**, the scopes and expiry, and approves.
+3. `POST {origin}/api/agent/link/token` with `{deviceCode, protocolVersion}` (the negotiated version), polled at the server's interval until it answers `issued`, `access_denied` or `expired_token`. `authorization_pending` and `slow_down` continue the loop; `slow_down` may only raise the interval.
 
-The connector validates what comes back rather than trusting it: the verification URL must be on the origin that was asked (a link endpoint may not send a user elsewhere), the device and user codes must match their shapes, the interval and expiry are clamped, and an issued credential must carry the `za_` bearer shape, the requested origin, a known scope set including `read`, at least one project, and an expiry that is in the future and within the 30-day ceiling. Anything else is refused with `invalid_response` and nothing is stored.
+The connector validates what comes back rather than trusting it: the verification URL must be on the origin that was asked (a link endpoint may not send a user elsewhere), the device and user codes must match their shapes, the interval and expiry are clamped, and an issued credential must carry the `za_` bearer shape, the requested origin, a known scope set including `read`, and an expiry that is in the future and within the 30-day ceiling. The project list must be non-empty, except for a version-2 whole-workspace grant, which must carry `allProjects: true`, `projectIds: []` and no environment narrowing. An optional `workspaceSlug` names the profile when it is a valid profile name. Anything else is refused with `invalid_response` and nothing is stored.
 
-`LINK_PROTOCOL_VERSION` is exported from the shared client so the integer the connector sends, the integer its tests assert and the integer the backend hard-codes come from one place. It is deliberately separate from `CONTRACT_VERSION` and `CONTROL_VERSION`: these endpoints mint a credential and version independently of the authenticated tool contract. No MCP tool was added for any of this, so `contracts/control-v2.json` and `node scripts/contracts.mjs --backend ABSOLUTE_PATH` are unaffected.
+After the approval `login` writes a named profile on every platform and makes it the active one. A whole-workspace grant is never pinned to a project (an explicit `--project` still narrows); a one-project list is pinned as before. The profile is named after the workspace slug, else the origin host, stepping to `name-2`, `name-3`, … when that name or its credential file is taken; `--name` overrides this and never steps.
 
-See [configuration](configuration.md) for the flags, the platform credential destinations, the Windows environment-block asymmetry, and the error codes. Approving a link deploys nothing: every change proposed afterwards is reviewed again in the browser against its exact digest.
+`LINK_PROTOCOL_VERSION` (2) and `MIN_LINK_PROTOCOL_VERSION` (1) are exported from the shared client, so the integer the connector sends and the integer its tests assert come from one place. The version is deliberately separate from `CONTRACT_VERSION` and `CONTROL_VERSION`: these endpoints mint a credential and version independently of the authenticated tool contract.
+
+See [configuration](configuration.md) for the flags, the platform credential destinations and the error codes. Approving a link deploys nothing: every change proposed afterwards is reviewed again in the browser against its exact digest.
+
+## Whole-workspace links and workspace-level changes
+
+A whole-workspace credential reaches every current and future project in its workspace, and is the only kind that can prepare workspace-level kinds (`project.create`, `connection.*`, alert channel changes, `workspace.rename`) with `target: {workspaceId}`. An explicit project list refuses them with `workspace_scope_required`; the fix is a new `login` choosing Whole workspace. A credential never widens itself. The approval page offers Whole workspace only to a version-2 connector, preselects it for a workspace with no projects, and otherwise defaults to the explicit list.
+
+## Switching profiles without a restart
+
+The stdio server resolves its client per call. Before each tool call, and every three seconds in the background, it compares the resolved profiles file's identity, size and modification time (and `ZENITH_PROFILE`) with what it last loaded. On a change it loads the file again, builds a new client, lists that client's tools, replaces its registered tools and sends `notifications/tools/list_changed`; the call that noticed the change already runs against the new profile. If the new profile cannot be loaded or listed, calls fail closed with a message saying nothing was sent, and the previous credential is not used. Only the file `resolveProfilesFile` selects is followed. Explicit connection variables turn that lookup off, so an environment-configured server never switches. Hosts that ignore `tools/list_changed` need the Zenith server reconnected once after a switch.
 
 ## Backend and credentials
 
@@ -26,7 +36,7 @@ Do not copy browser cookies, paste credentials into chat, commit profiles/tokens
 
 ## Named profiles
 
-Profiles are explicit private user configuration, not repository discovery. POSIX files must be owned and private under a private directory. Commands do not issue credentials or prove connectivity:
+Profiles are explicit private user configuration, not repository discovery. POSIX files must be owned and private under a private directory. On Windows the directory and the file must be local, not links, owned by the current user, and carry protected (non-inherited) ACLs granting only that user and SYSTEM; the connector creates `%APPDATA%\zenith` that way when it is absent, seals each file it writes, checks both on every read, and refuses an existing directory with other access rather than changing its permissions. Commands do not issue credentials or prove connectivity:
 
 ```bash
 npm run profile -- add --file "$HOME/.config/zenith/profiles.json" --name local \
@@ -49,7 +59,7 @@ npm run profile -- add --file "$HOME/.config/zenith/profiles.json" --name produc
   --keychain-service com.example.zenith --keychain-account "$USER"
 ```
 
-Add refuses duplicate names. Use changes the active profile; restart the agent to change an already established connection. `ZENITH_PROFILE` overrides the selected profile explicitly. Remove refuses the active profile and does not revoke server authority. Named profile files currently remain POSIX-only; Windows can use explicit URL/scope variables with a protected vault.
+Add refuses duplicate names; `--token-vault ABS` references a Windows DPAPI vault. `profile use NAME` (or `use --name NAME`) changes the active profile, and a running stdio server follows it on its next call. `list`, `use` and `remove` default to `ZENITH_PROFILES_FILE`, else the platform default file. `ZENITH_PROFILE` overrides the selected profile explicitly. Remove refuses the active profile and does not revoke server authority. Windows can still use explicit URL/scope variables with a protected vault (`login --print-env`).
 
 ## Windows protected credentials
 
@@ -78,7 +88,7 @@ The output includes a Claude MCP HTTP configuration and a Codex TOML entry with 
 
 ## Exact changes and handoff
 
-Read actual context and capabilities. For a working-copy edit, read the original working manifest hash from the tool result; redacted data must not be submitted as replacement secrets. `zenith_get_edit_fields` exposes allowed edits and actual field names. `zenith_prepare_change` accepts a stable request key and one of nine proposal kinds. It persists exact inputs, target state, plan digest, expiry and optional exact Git source reference.
+Read actual context and capabilities. For a working-copy edit, read the original working manifest hash from the tool result; redacted data must not be submitted as replacement secrets. `zenith_get_edit_fields` exposes allowed edits and actual field names. `zenith_prepare_change` accepts a stable request key and one of the proposal kinds listed in the [tool reference](tool-reference.md#proposal-kinds); secret values, provider credentials, policy loosening, deletions, deployment approval and people changes are browser hand-offs returned by `zenith_get_handoff`. It persists exact inputs, target state, plan digest, expiry and optional exact Git source reference.
 
 Review the proposal at `/integrations` as a real signed-in user. Approve the exact digest; production policy can require an administrator. Agents have no approval tool. `zenith_execute_operation` accepts only the existing operation ID and rechecks membership, scope, state and policy before one-time dispatch. Same-user operation IDs can be inspected from either client only when that client's scope permits the target.
 

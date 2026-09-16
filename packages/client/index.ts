@@ -24,10 +24,18 @@ export const CONTRACT_VERSION = 1;
  * Wire version of the browser link (device) flow. It is deliberately separate
  * from CONTRACT_VERSION and CONTROL_VERSION: the link endpoints mint a
  * credential and are reached before one exists, so they version independently
- * of the authenticated tool contract. The connector sends this integer and the
- * backend hard-codes the same one.
+ * of the authenticated tool contract. The connector sends this integer; a
+ * version-2 backend accepts 1 or 2.
+ *
+ * Version 2 adds two unverified start hints (`workspaceHint`,
+ * `workspaceNameHint`) and lets the browser grant the whole workspace
+ * (`allProjects: true` with `projectIds: []`). A version-1 backend refuses the
+ * version-2 start body, so the connector falls back to version 1 once, without
+ * hints, and then requires a non-empty project list.
  */
-export const LINK_PROTOCOL_VERSION = 1;
+export const LINK_PROTOCOL_VERSION = 2;
+/** The oldest link wire version this connector still speaks. */
+export const MIN_LINK_PROTOCOL_VERSION = 1;
 export const MAX_REQUEST_BYTES = 65_536;
 export const MAX_RESPONSE_BYTES = 262_144;
 const readNames = Object.freeze([

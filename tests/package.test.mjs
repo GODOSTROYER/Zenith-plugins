@@ -14,7 +14,7 @@ test('credential file ownership, permissions, size and symlink guards',{skip:pro
  const dir=await mkdtemp(path.join(tmpdir(),'zenith token '));
  try {const file=path.join(dir,'client.token');await writeFile(file,credential,{mode:0o600});assert.equal(await readCredential(file),credential);await chmod(file,0o644);await assert.rejects(readCredential(file));await chmod(file,0o600);await writeFile(file,'x'.repeat(257));await assert.rejects(readCredential(file));await symlink(file,path.join(dir,'linked'));await assert.rejects(readCredential(path.join(dir,'linked')));await assert.rejects(readCredential('relative.token'));} finally{await rm(dir,{recursive:true,force:true});}
 });
-const SKILLS=['connect','deploy','edit','export','incident','inspect','link','observe','plan','promote','publish','rollback'];
+const SKILLS=['alerts','connect','deploy','edit','environments','export','findings','incident','inspect','link','observe','operate','plan','promote','publish','rollback','secrets','workspace'];
 for(const kind of ['codex','claude-code'])test(`${kind} package ships every shared skill byte for byte, link included`,async()=>{
  const shared=new URL('../shared/skills/',import.meta.url),packaged=new URL(`../plugins/${kind}/skills/`,import.meta.url);
  assert.deepEqual((await readdir(shared)).sort(),SKILLS,'shared/skills is the canonical inventory; scripts/build.mjs copies it');

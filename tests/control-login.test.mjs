@@ -6,7 +6,9 @@ import path from 'node:path';
 import {execFile} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {tsImport} from 'tsx/esm/api';
-const {loginCommand,allowWritesFor,clientName,defaultProfileName,defaultProfilesFile,defaultVaultPath}=await tsImport('../packages/control/login.ts',import.meta.url);
+const {loginCommand,allowWritesFor,clientName,defaultProfileName,defaultProfilesFile,defaultVaultPath,preferredProfileName}=await tsImport('../packages/control/login.ts',import.meta.url);
+const {controlClient,loadProfiles}=await tsImport('../packages/control/profiles.ts',import.meta.url);
+const {startControlFixture}=await import('./control-fixture.mjs');
 const {readVault}=await tsImport('../packages/control/vault.ts',import.meta.url);
 
 const ORIGIN='https://zenith.test';
@@ -14,18 +16,21 @@ const DEVICE=`zl_${'A'.repeat(43)}`;
 const TOKEN=`za_${'L'.repeat(43)}`;
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json'}});
 const START={deviceCode:DEVICE,userCode:'K7QM-3XRB',verificationUri:`${ORIGIN}/agent/link`,verificationUriComplete:`${ORIGIN}/agent/link?code=K7QM-3XRB`,interval:5,expiresIn:600,protocolVersion:1};
+const WHOLE={projectIds:[],allProjects:true,workspaceSlug:'acme-team'};
 const issued=(change={})=>({status:'issued',token:TOKEN,credentialId:'cred_1',origin:ORIGIN,workspaceId:'ws_1',projectIds:['prj_a','prj_b'],environmentIds:null,scopes:['read','plan','write','logs'],expiresAt:new Date(Date.now()+7*86400000).toISOString(),label:'tarun-laptop',...change});
 
-function io(extra={},grant={}){
-  const out=[],err=[],opened=[];
-  return {out,err,opened,options:{
+function io(extra={},grant={},{version=1,origin=ORIGIN}={}){
+  const out=[],err=[],opened=[],bodies=[];
+  const start={...START,protocolVersion:version,verificationUri:`${origin}/agent/link`,verificationUriComplete:`${origin}/agent/link?code=K7QM-3XRB`};
+  return {out,err,opened,bodies,options:{
     env:{},sleep:async()=>{},signal:new AbortController().signal,
     out:line=>out.push(line),err:line=>err.push(line),open:url=>{opened.push(url);return true;},
-    fetch:async url=>String(url).endsWith('/api/agent/link/start')?json(START,201):json(issued(grant)),
+    fetch:async(url,init)=>{const body=JSON.parse(init.body);bodies.push(body);return String(url).endsWith('/api/agent/link/start')?json(start,201):json(issued({origin,...grant}));},
     ...extra,
   }};
 }
-const POSIX=process.platform==='win32'?'Private POSIX profiles; updateProfiles refuses on win32 (profiles.ts). The DPAPI half of this file runs instead.':false;
+const POSIX=process.platform==='win32'?'POSIX token-file profiles; on win32 login writes a DPAPI profile instead (the Windows tests below).':false;
+const WINDOWS=process.platform!=='win32'?'Windows DPAPI and profile ACLs; a skipped POSIX run is not Windows evidence':false;
 
 test('login detects the host agent, the profile name and the private defaults without asking',()=>{
   assert.equal(clientName({CLAUDE_PLUGIN_ROOT:'/x'}),'Claude Code');
@@ -34,7 +39,11 @@ test('login detects the host agent, the profile name and the private defaults wi
   assert.equal(clientName({}),'Zenith CLI');
   assert.equal(defaultProfileName('https://tryzenith.cloud'),'tryzenith');
   assert.equal(defaultProfileName('https://127.0.0.1:3400'),'127');
-  assert.equal(defaultProfilesFile({XDG_CONFIG_HOME:path.resolve('/cfg')}),path.join(path.resolve('/cfg'),'zenith','profiles.json'));
+  assert.equal(defaultProfilesFile({XDG_CONFIG_HOME:path.resolve('/cfg')},path.resolve('/home/you'),'linux'),path.join(path.resolve('/cfg'),'zenith','profiles.json'));
+  assert.equal(defaultProfilesFile({APPDATA:'C:\\Users\\you\\AppData\\Roaming'},'C:\\Users\\you','win32'),'C:\\Users\\you\\AppData\\Roaming\\zenith\\profiles.json');
+  assert.equal(defaultProfilesFile({APPDATA:'relative'},'C:\\Users\\you','win32'),'C:\\Users\\you\\AppData\\Roaming\\zenith\\profiles.json');
+  assert.equal(preferredProfileName('https://tryzenith.cloud',{workspaceSlug:'acme-team'}),'acme-team');
+  assert.equal(preferredProfileName('https://tryzenith.cloud',{}),'tryzenith');
   assert.equal(defaultVaultPath({LOCALAPPDATA:'C:\\Users\\you\\AppData\\Local'},'tryzenith'),'C:\\Users\\you\\AppData\\Local\\ZenithPrivate\\tryzenith.dpapi');
 });
 
@@ -131,11 +140,17 @@ test('login refuses an insecure or unknown destination before it reaches the net
   await assert.rejects(loginCommand(['--url',ORIGIN,'--scopes','read,root','--no-browser'],network),{code:'usage'});
   await assert.rejects(loginCommand(['--url',ORIGIN,'--unknown','x'],network),{code:'usage'});
   await assert.rejects(loginCommand(['--url',ORIGIN,'--name','bad name'],network),{code:'usage'});
+  await assert.rejects(loginCommand(['--url',ORIGIN,'--workspace','ws_1','--new-workspace','Team'],network),{code:'usage'});
+  await assert.rejects(loginCommand(['--url',ORIGIN,'--workspace','bad id'],network),{code:'usage'});
+  await assert.rejects(loginCommand(['--url',ORIGIN,'--new-workspace','<b>'],network),{code:'usage'});
+  await assert.rejects(loginCommand(['--url',ORIGIN,'--print-env'],{...network,platform:'linux'}),{code:'usage'});
 });
 
 test('the bridge routes login and reports the real refusal code, not startup_failed',{timeout:20000},async()=>{
   const cli=fileURLToPath(new URL('../packages/bridge/cli.mjs',import.meta.url));
   const env={...process.env};for(const key of Object.keys(env))if(key.startsWith('ZENITH_'))delete env[key];
+  // Point both default profile locations at a directory that does not exist, so no real profile is read.
+  env.XDG_CONFIG_HOME=env.APPDATA=path.join(tmpdir(),'zenith-no-config-'+process.pid);
   const run=args=>new Promise(resolve=>execFile(process.execPath,[cli,...args],{env},(error,stdout,stderr)=>resolve({code:error?.code??0,stdout,stderr})));
   // Ungated help names the new verb and opens nothing.
   const help=await run(['--help']);
@@ -154,11 +169,11 @@ test('the bridge routes login and reports the real refusal code, not startup_fai
   assert.equal(unlinked.stdout.trim(),'Not linked. Run `zenith login`.');
 });
 
-test('Windows login stores a DPAPI vault, writes no profile and prints the environment block',{skip:process.platform!=='win32'?'Windows DPAPI path; a skipped POSIX run is not Windows evidence':false,timeout:60000},async t=>{
+test('Windows login --print-env stores a DPAPI vault, writes no profile and prints the environment block',{skip:WINDOWS,timeout:60000},async t=>{
   const dir=await mkdtemp(path.join(tmpdir(),'zenith-login-dpapi-'));t.after(()=>rm(dir,{recursive:true,force:true}));
   const vault=path.join(dir,'private','zen.dpapi'),file=path.join(dir,'profiles.json');
   const harness=io({platform:'win32'});
-  await loginCommand(['--url',ORIGIN,'--vault',vault,'--profiles',file,'--name','zen','--no-browser'],harness.options);
+  await loginCommand(['--url',ORIGIN,'--vault',vault,'--profiles',file,'--name','zen','--no-browser','--print-env'],harness.options);
   assert.equal(await readVault(vault),TOKEN);
   assert.equal((await readFile(vault)).includes(Buffer.from(TOKEN)),false);
   await assert.rejects(stat(file),'Windows must not write a named profile file');
@@ -171,5 +186,87 @@ test('Windows login stores a DPAPI vault, writes no profile and prints the envir
   assert.ok(printed.includes(`ZENITH_TOKEN_VAULT=${vault}`));
   assert.ok(printed.includes('ZENITH_ALLOW_WRITES=1'));
   // Create-only: a second link to the same vault refuses rather than replacing it.
-  await assert.rejects(loginCommand(['--url',ORIGIN,'--vault',vault,'--profiles',file,'--name','zen','--no-browser'],io({platform:'win32'}).options),{code:'vault_refused'});
+  await assert.rejects(loginCommand(['--url',ORIGIN,'--vault',vault,'--profiles',file,'--name','zen','--no-browser','--print-env'],io({platform:'win32'}).options),{code:'vault_refused'});
+});
+
+test('a v2 whole-workspace login stores a profile named after the workspace, with no project pin, and makes it active',{skip:POSIX},async t=>{
+  const dir=await mkdtemp(path.join(tmpdir(),'zenith-login-whole-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+  const file=path.join(dir,'profiles.json');
+  const first=io({},{},{version:2});
+  await loginCommand(['--url',ORIGIN,'--profiles',file,'--name','old','--no-browser'],first.options);
+  const harness=io({},{...WHOLE},{version:2});
+  await loginCommand(['--url',ORIGIN,'--profiles',file,'--no-browser','--new-workspace','Acme Team'],harness.options);
+  assert.equal(harness.bodies[0].protocolVersion,2);
+  assert.equal(harness.bodies[0].workspaceNameHint,'Acme Team');
+  assert.equal(harness.bodies[1].protocolVersion,2);
+  const document=JSON.parse(await readFile(file,'utf8'));
+  assert.equal(document.active,'acme-team');
+  assert.deepEqual(document.profiles['acme-team'].scope,{version:1,workspaceId:'ws_1'});
+  assert.equal(document.profiles['acme-team'].credential.path,path.join(dir,'acme-team.token'));
+  const printed=harness.out.join('\n');
+  assert.match(printed,/Whole workspace/);
+  assert.match(printed,/Create a new workspace/);
+  // A second link to the same workspace steps to a fresh name instead of failing.
+  await loginCommand(['--url',ORIGIN,'--profiles',file,'--no-browser','--json'],io({},{...WHOLE},{version:2}).options);
+  const again=JSON.parse(await readFile(file,'utf8'));
+  assert.equal(again.active,'acme-team-2');
+  assert.deepEqual(Object.keys(again.profiles).sort(),['acme-team','acme-team-2','old']);
+});
+
+test('a whole-workspace grant never pins a project implicitly',{skip:POSIX},async t=>{
+  const dir=await mkdtemp(path.join(tmpdir(),'zenith-login-nopin-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+  const file=path.join(dir,'profiles.json');
+  const harness=io({},{...WHOLE},{version:2});
+  await loginCommand(['--url',ORIGIN,'--profiles',file,'--name','zen','--no-browser','--json'],harness.options);
+  const report=JSON.parse(harness.out.join('\n'));
+  assert.equal(report.scopeMode,'workspace');assert.equal(report.allProjects,true);assert.deepEqual(report.projectIds,[]);
+  assert.equal(report.pinnedProject,undefined);
+  assert.deepEqual(report.profile,{name:'zen',file,active:true});
+  assert.equal((await loadProfiles(file)).profiles.zen.scope.projectId,undefined);
+  // An explicit --project still narrows, exactly like the server's header.
+  await loginCommand(['--url',ORIGIN,'--profiles',file,'--name','pinned','--project','prj_later','--no-browser'],io({},{...WHOLE},{version:2}).options);
+  assert.equal((await loadProfiles(file)).profiles.pinned.scope.projectId,'prj_later');
+});
+
+test('a v1 server keeps working: the hint is reported as not sent and the explicit project list is stored',{skip:POSIX},async t=>{
+  const dir=await mkdtemp(path.join(tmpdir(),'zenith-login-v1-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+  const file=path.join(dir,'profiles.json');
+  const bodies=[],out=[];
+  const fetch=async(url,init)=>{const body=JSON.parse(init.body);bodies.push(body);
+    if(String(url).endsWith('/start'))return body.protocolVersion===1?json(START,201):json({error:{code:'invalid_request',message:'This server speaks link protocol version 1.'}},400);
+    return json(issued({projectIds:['prj_a']}));};
+  await loginCommand(['--url',ORIGIN,'--profiles',file,'--no-browser','--workspace','ws_1'],{...io().options,fetch,out:line=>out.push(line)});
+  assert.deepEqual(bodies.map(b=>b.protocolVersion),[2,1,1]);
+  assert.match(out.join('\n'),/link protocol 1/);
+  const document=await loadProfiles(file);
+  assert.equal(document.active,'zenith');
+  assert.deepEqual(document.profiles.zenith.scope,{version:1,workspaceId:'ws_1',projectId:'prj_a'});
+});
+
+test('Windows login writes a DPAPI profile that the connector resolves, with no pin under a whole-workspace grant',{skip:WINDOWS,timeout:120000},async t=>{
+  const dir=await mkdtemp(path.join(tmpdir(),'zenith-login-winprofile-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+  const fixture=await startControlFixture({[TOKEN]:'ws_1'});t.after(fixture.close);
+  const file=path.join(dir,'cfg','profiles.json'),vaults=path.join(dir,'vaults');
+  const harness=io({platform:'win32',env:{LOCALAPPDATA:vaults}},{...WHOLE},{version:2,origin:fixture.origin});
+  await loginCommand(['--url',fixture.origin,'--loopback','1','--profiles',file,'--no-browser'],harness.options);
+  const vault=path.join(vaults,'ZenithPrivate','acme-team.dpapi');
+  assert.equal(await readVault(vault),TOKEN);
+  const document=await loadProfiles(file);
+  assert.equal(document.active,'acme-team');
+  assert.deepEqual(document.profiles['acme-team'].credential,{kind:'dpapi',path:vault});
+  assert.deepEqual(document.profiles['acme-team'].scope,{version:1,workspaceId:'ws_1'});
+  assert.equal((await readFile(file,'utf8')).includes('za_'),false);
+  const printed=harness.out.join('\n');
+  assert.equal(printed.includes(TOKEN),false);
+  assert.equal(printed.includes('ZENITH_TOKEN_VAULT'),false,'no environment block without --print-env');
+  // The server side: the profile resolves, the vault decrypts, and the request carries the workspace.
+  const client=await controlClient({ZENITH_PROFILES_FILE:file});
+  assert.equal(client.origin,fixture.origin);
+  assert.deepEqual({...client.scope},{version:1,workspaceId:'ws_1'});
+  const context=await client.call('zenith_get_context',{});
+  assert.equal(context.structuredContent.data.selected.workspaceId,'ws_1');
+  assert.equal(context.structuredContent.data.selected.projectId,undefined);
+  // A second profile for the same workspace steps past the existing name and vault.
+  await loginCommand(['--url',fixture.origin,'--loopback','1','--profiles',file,'--no-browser'],io({platform:'win32',env:{LOCALAPPDATA:vaults}},{...WHOLE},{version:2,origin:fixture.origin}).options);
+  assert.equal((await loadProfiles(file)).active,'acme-team-2');
 });

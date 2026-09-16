@@ -24,7 +24,7 @@ function harness(respond,{expiresIn=600,interval=5}={}){
 }
 const start=(respond,extra={})=>startLink({origin:ORIGIN,clientName:'Claude Code',clientVersion:'2.1.4',label:'tarun-laptop',fetch:respond,...extra});
 
-test('start sends the frozen protocol version and returns only validated fields',async()=>{
+test('start sends protocol version 2 and returns only validated fields',async()=>{
   let sent;
   const result=await start(async(url,options)=>{sent={url:String(url),body:JSON.parse(options.body),headers:options.headers,redirect:options.redirect,credentials:options.credentials};return json(START,201);});
   assert.equal(sent.url,`${ORIGIN}/api/agent/link/start`);
@@ -35,6 +35,8 @@ test('start sends the frozen protocol version and returns only validated fields'
   assert.equal(sent.headers.authorization,undefined);
   assert.equal(result.userCode,'K7QM-3XRB');assert.equal(result.deviceCode,DEVICE);
   assert.equal(result.interval,5);assert.equal(result.expiresIn,600);
+  assert.equal(LINK_PROTOCOL_VERSION,2);assert.equal(result.protocolVersion,2);assert.equal(result.hintsDelivered,true);
+  assert.equal('workspaceHint' in sent.body,false);assert.equal('workspaceNameHint' in sent.body,false);
 });
 
 test('start clamps a hostile interval and expiry instead of trusting them',async()=>{
@@ -50,7 +52,8 @@ test('start refuses a verification URL that points at another origin or drops th
 test('start refuses malformed device and user codes and a different protocol version',async()=>{
   await assert.rejects(start(async()=>json({...START,deviceCode:'zl_short'},201)),{code:'invalid_response'});
   await assert.rejects(start(async()=>json({...START,userCode:'ILOU-1234'},201)),{code:'invalid_response'});
-  await assert.rejects(start(async()=>json({...START,protocolVersion:2},201)),{code:'protocol_mismatch'});
+  for(const protocolVersion of [LINK_PROTOCOL_VERSION+1,0,'2'])
+    await assert.rejects(start(async()=>json({...START,protocolVersion},201)),{code:'protocol_mismatch'},String(protocolVersion));
 });
 
 test('start refuses unknown requested scopes and unusable client descriptors before any request',async()=>{
@@ -184,4 +187,69 @@ test('the browser launcher refuses anything it cannot pass as one safe argument'
   assert.equal(openBrowser(`${ORIGIN}/agent/link?code=A&calc`,'win32',{SystemRoot:'C:\\Windows'}),false);
   assert.equal(openBrowser(`${ORIGIN}/agent/link?code=K7QM-3XRB`,'win32',{}),false);
   assert.equal(openBrowser(`${ORIGIN}/${'x'.repeat(600)}`,'linux',{}),false);
+});
+
+test('start carries the workspace hints on version 2 and validates them before any request',async()=>{
+  const bodies=[];
+  const record=async(url,options)=>{bodies.push(JSON.parse(options.body));return json(START,201);};
+  await start(record,{workspaceHint:'ws_team'});
+  await start(record,{workspaceNameHint:"Tarun's lab"});
+  assert.equal(bodies[0].workspaceHint,'ws_team');assert.equal(bodies[0].protocolVersion,2);
+  assert.equal(bodies[1].workspaceNameHint,"Tarun's lab");
+  const network=()=>assert.fail('network reached');
+  for(const extra of [{workspaceHint:'bad id'},{workspaceNameHint:''},{workspaceNameHint:'x'.repeat(61)},{workspaceNameHint:'<script>'},{workspaceNameHint:' leading'},{workspaceHint:'ws_1',workspaceNameHint:'Both'}])
+    await assert.rejects(start(network,extra),{code:'invalid_request'},JSON.stringify(extra));
+});
+
+test('a version-1 server refusal falls back once to version 1 without hints, and the poll follows it',async()=>{
+  const bodies=[];
+  const result=await start(async(url,options)=>{const body=JSON.parse(options.body);bodies.push(body);
+    if(body.protocolVersion!==1)return json({error:{code:'invalid_request',message:'This server speaks link protocol version 1. Update the Zenith plugin.'}},400);
+    return json({...START,protocolVersion:1},201);},{workspaceNameHint:'New team'});
+  assert.equal(bodies.length,2);
+  assert.deepEqual([bodies[0].protocolVersion,bodies[1].protocolVersion],[2,1]);
+  assert.equal(bodies[0].workspaceNameHint,'New team');
+  assert.equal('workspaceNameHint' in bodies[1],false);
+  assert.equal(result.protocolVersion,1);assert.equal(result.hintsDelivered,false);
+  const h=harness(()=>json(ISSUED));
+  const credential=await h.poll({protocolVersion:result.protocolVersion});
+  assert.equal(h.calls[0].body.protocolVersion,1);
+  assert.equal(credential.allProjects,false);assert.deepEqual(credential.projectIds,['prj_a','prj_b']);
+  // Any other refusal is not retried, and a second refusal is reported as is.
+  let calls=0;
+  await assert.rejects(start(async()=>{calls++;return json({error:{code:'rate_limited',message:'Slow down.'}},429);}),{code:'rate_limited'});
+  assert.equal(calls,1);
+  calls=0;
+  await assert.rejects(start(async()=>{calls++;return json({error:{code:'invalid_request',message:'Bad client name.'}},400);}),{code:'invalid_request'});
+  assert.equal(calls,2);
+});
+
+test('a whole-workspace grant is accepted on version 2 with an empty project list and no pin data',async()=>{
+  const h=harness(()=>json({...ISSUED,allProjects:true,projectIds:[],workspaceSlug:'acme-team'}));
+  const credential=await h.poll();
+  assert.equal(credential.allProjects,true);
+  assert.deepEqual(credential.projectIds,[]);
+  assert.equal(credential.environmentIds,null);
+  assert.equal(credential.workspaceSlug,'acme-team');
+  assert.equal(h.calls[0].body.protocolVersion,2);
+});
+
+test('whole-workspace answers that are inconsistent or arrive over version 1 are refused',async()=>{
+  const bad=[
+    {allProjects:true,projectIds:['prj_a']},
+    {allProjects:true,projectIds:[],environmentIds:['env_1']},
+    {allProjects:true},
+    {allProjects:'yes',projectIds:[]},
+    {allProjects:false,projectIds:[]},
+  ];
+  for(const change of bad){
+    const h=harness(()=>json({...ISSUED,...change}));
+    await assert.rejects(h.poll(),{code:'invalid_response'},JSON.stringify(change));
+  }
+  const v1=harness(()=>json({...ISSUED,allProjects:true,projectIds:[]}));
+  await assert.rejects(v1.poll({protocolVersion:1}),{code:'invalid_response'});
+  await assert.rejects(harness(()=>json(ISSUED)).poll({protocolVersion:3}),{code:'invalid_request'});
+  // An unusable slug is dropped rather than trusted as a profile name.
+  const slug=await harness(()=>json({...ISSUED,workspaceSlug:'../etc'})).poll();
+  assert.equal(slug.workspaceSlug,undefined);
 });
