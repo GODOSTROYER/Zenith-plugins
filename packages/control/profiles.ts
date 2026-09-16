@@ -42,7 +42,7 @@ export async function loadProfiles(file:string,platform:NodeJS.Platform=process.
   return validateProfiles(JSON.parse(await readBoundedFile(file,65536,true)));
 }
 /** Windows only, after the native helper verified the directory and file ACLs. */
-const readVerified=async(file:string):Promise<Profiles>=>validateProfiles(JSON.parse(await readBoundedFile(file,65536,false)));
+const readVerified=async(file:string):Promise<Profiles>=>validateProfiles(JSON.parse(await readBoundedFile(file,65536,false,true)));
 export async function updateProfiles(file:string,change:(current:Profiles|undefined)=>Profiles,platform:NodeJS.Platform=process.platform):Promise<void>{
   const windows=platform==='win32';
   if(!isAbsolute(file)||windows!==(process.platform==='win32'))throw new ClientError('private_profile_unavailable','Use an absolute private profile file for this platform.');

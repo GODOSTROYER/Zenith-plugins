@@ -14,6 +14,8 @@ test('bounded file reading verifies identity or refuses an unavailable Windows d
   const before = await lstat(name, { bigint: true });
   if (process.platform === 'win32' && before.dev === 0n) {
     await assert.rejects(readBoundedFile(name, 4096), { code: 'file_identity_unverified' });
+    // An ACL-verified profile read falls back to the file index on such a volume.
+    assert.match(await readBoundedFile(name, 4096, false, true), /fixture/);
     return;
   }
   const handle = await open(name, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
