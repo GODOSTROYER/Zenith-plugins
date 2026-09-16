@@ -30,6 +30,14 @@ export class ControlClient {
       const headers:Record<string,string>={authorization:`Bearer ${token}`,accept:'application/json','x-zenith-workspace':this.scope.workspaceId,'x-request-id':requestId};
       if(this.scope.projectId)headers['x-zenith-project']=this.scope.projectId;if(this.scope.environmentId)headers['x-zenith-environment']=this.scope.environmentId;if(body!==undefined)headers['content-type']=contentType;
       const response=await wait(this.fetcher(new URL(path,this.origin),{method,headers,...(body===undefined?{}:{body:body as BodyInit}),signal:abort,redirect:'error',credentials:'omit',cache:'no-store'}));status=response.status;
+      if(!response.ok&&status===400&&(response.headers.get('content-type')??'').split(';')[0]?.trim().toLowerCase()==='application/json'){
+        // A 400 carries the server's own refusal (`{error:{code,message}}`), which
+        // names the field to correct. Pass a bounded copy through; nothing else.
+        const text=await wait(response.text()).catch(()=>'');let detail:unknown;try{detail=JSON.parse(text.slice(0,8192));}catch{detail=undefined;}
+        const err=isObject(detail)&&isObject(detail.error)?detail.error:undefined;
+        if(err&&typeof err.code==='string'&&/^[a-z][a-z0-9_]{0,63}$/.test(err.code)&&typeof err.message==='string')
+          throw new ClientError(err.code,`${err.message.slice(0,1000)} No automatic retry was made.`);
+      }
       if(!response.ok){void response.body?.cancel().catch(()=>{});throw new ClientError(`http_${status}`,status===401?'Re-authenticate; token expired, invalid, or intended for another resource.':status===403?'Check selected IDs, resource grants and scopes in Zenith. Do not obtain broader access to bypass a refusal.':status===503?'Control unavailable or outcome uncertain. Inspect the operation before taking another action.':`Zenith refused the request (HTTP ${status}). No automatic retry was made.`);}
       if((response.headers.get('content-type')??'').split(';')[0]?.trim().toLowerCase()!=='application/json'){void response.body?.cancel().catch(()=>{});throw new ClientError('invalid_response','The versioned tools API must return JSON.');}
       const reader=response.body?.getReader();if(!reader)throw new ClientError('invalid_response','Empty response.');const chunks:Uint8Array[]=[];
