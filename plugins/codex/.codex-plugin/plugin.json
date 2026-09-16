@@ -1,7 +1,7 @@
 {
   "name": "zenith",
-  "version": "0.2.0-dev.1",
-  "description": "Zenith inspection, exact browser-reviewed changes, deployment and supported source publishing. Writes require explicit v2 enablement.",
+  "version": "0.3.0-dev.1",
+  "description": "Link a Zenith account with zenith login, then inspect, architect and deploy through browser-reviewed changes. Phase 1 deployments are simulated by the sandbox provider.",
   "author": {
     "name": "GODOSTROYER"
   },

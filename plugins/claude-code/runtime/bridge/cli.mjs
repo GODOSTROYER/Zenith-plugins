@@ -24,12 +24,13 @@ const HELP_COMMANDS = new Set(['--help', '-h', 'help']);
 const VERSION_COMMANDS = new Set(['--version', 'version']);
 const UNGATED_COMMANDS = new Set([...HELP_COMMANDS, ...VERSION_COMMANDS]);
 
-const HELP_TEXT = 'Zenith connector: stdio | doctor | setup | --help | --version\n'
+const HELP_TEXT = 'Zenith connector: login | logout | status | stdio | doctor | setup | --help | --version\n'
+  + 'Link a Zenith account in the browser: login [--url ORIGIN] [--name NAME] [--no-browser] [--json]. It prints a URL and a code, waits for the approval, then stores the issued credential. logout removes the local credential; revoke in the browser at ORIGIN/integrations.\n'
   + 'Use ZENITH_CONFIG_FILE, or explicit ZENITH_URL / ZENITH_WORKSPACE_ID / ZENITH_TOKEN_FILE (or ZENITH_TOKEN).\n'
   + 'Setup: setup --output ABSOLUTE_PATH --url TRUSTED_ORIGIN --workspace ID --token-file ABSOLUTE_PATH [--project ID] [--environment ID] [--allow-loopback-http]\n'
   + 'Setup creates a new private profile, never a credential or deployment. No implicit repository configuration.\n'
   + 'Local HTTP requires explicit opt-in. See docs/configuration.md.\n'
-  + 'In an installed package only --help and --version run ungated; stdio, doctor, setup and the v2 control commands require the trusted launcher\'s absolute ZENITH_PROVENANCE_MANIFEST and ZENITH_PROVENANCE_TRUST paths and fail closed with provenance_required. See docs/provenance.md.';
+  + 'An installed package that declares mode "unsigned-preview" in provenance-mode.json activates without provenance inputs, and login, status and doctor all report that it is not publisher-verified. Any other installed package runs only --help and --version ungated; stdio, doctor, setup and the v2 control commands then require the trusted launcher\'s absolute ZENITH_PROVENANCE_MANIFEST and ZENITH_PROVENANCE_TRUST paths and fail closed with provenance_required. Setting either variable, or ZENITH_REQUIRE_PROVENANCE=1, also makes a preview package verify. See docs/provenance.md.';
 
 export async function serve(client, { input = process.stdin, output = process.stdout, signal } = {}) {
   const active = new Map(); let buffer = Buffer.alloc(0), discarding = false, state = 'new';
@@ -124,10 +125,16 @@ export async function main(args = process.argv.slice(2)) {
   // gate had deliberately not verified. Nothing above this line reads a
   // credential, a profile or a provenance input.
   if (HELP_COMMANDS.has(command)) { console.log(HELP_TEXT); return; }
-  if (!UNGATED_COMMANDS.has(command)) await enforceInstalledProvenance();
+  // The gate's own answer is the only honest source for "is this build
+  // publisher-verified". It is passed down as an argument rather than through
+  // the environment, so nothing outside this process can claim a package is
+  // verified when the gate did not say so.
+  const activation = UNGATED_COMMANDS.has(command) ? undefined : (await enforceInstalledProvenance()).mode;
   if (VERSION_COMMANDS.has(command)) { console.log(VERSION); return; }
-  if (process.env.ZENITH_API_VERSION === '2' || process.env.ZENITH_PROFILES_FILE || ['profile','source','remote-config'].includes(args[0])) {
-    const { main: controlMain } = await import('../control/cli.mjs'); await controlMain([...args]); return;
+  // login, logout and status join this list so they work on a machine with no
+  // Zenith environment at all, which is the entire point of a browser link.
+  if (process.env.ZENITH_API_VERSION === '2' || process.env.ZENITH_PROFILES_FILE || ['login','logout','status','profile','source','remote-config'].includes(args[0])) {
+    const { main: controlMain } = await import('../control/cli.mjs'); await controlMain([...args], { activation }); return;
   }
   if (process.env.ZENITH_API_VERSION && process.env.ZENITH_API_VERSION !== '1') throw new ClientError('unsupported_version', 'Select API version 1 or 2 explicitly.');
   if (args[0] === 'setup') { console.log(JSON.stringify(await setup(args.slice(1)), null, 2)); return; }
@@ -142,9 +149,20 @@ export async function main(args = process.argv.slice(2)) {
 // A provenance refusal names the missing or rejected trust input. Masking it as
 // a credential problem sent operators to debug the wrong file, so its code and
 // message are preserved exactly like a ClientError's.
+//
+// The v2 control CLI is loaded from an esbuild bundle that carries its own copy
+// of ClientError, so `instanceof` across that boundary is false even for a real,
+// deliberate refusal: every control refusal — `usage`, `profile_exists`,
+// `access_denied`, `vault_refused` — was reported as `startup_failed`, sending
+// operators to debug a credential that was never the problem. Recognise the
+// shape as well as the class, with both fields bounded because a code can
+// originate in a refusal the server explained.
+const REFUSAL_CODE = /^[a-z][a-z0-9_]{0,63}$/;
+const refusal = error => error instanceof ClientError || error instanceof ProvenanceError
+  || (error?.name === 'ClientError' && typeof error.code === 'string' && REFUSAL_CODE.test(error.code) && typeof error.message === 'string');
 if (isMain(import.meta.url)) main().catch(error => {
-  const explicit = error instanceof ClientError || error instanceof ProvenanceError;
+  const explicit = refusal(error);
   console.error(JSON.stringify({ level: 'error', code: explicit ? error.code : 'startup_failed',
-    message: explicit ? error.message : 'Could not load configuration or credential. Check paths, ownership, and JSON; secret values are not logged.' }));
+    message: explicit ? String(error.message).slice(0, 1000) : 'Could not load configuration or credential. Check paths, ownership, and JSON; secret values are not logged.' }));
   process.exitCode = 1;
 });

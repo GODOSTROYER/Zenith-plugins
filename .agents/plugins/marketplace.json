@@ -10,6 +10,7 @@
         "source": "local",
         "path": "./plugins/codex"
       },
+      "description": "Link a Zenith account, architect and deploy with browser-reviewed changes. Phase 1 deploys are simulated.",
       "policy": {
         "installation": "AVAILABLE",
         "authentication": "ON_INSTALL"

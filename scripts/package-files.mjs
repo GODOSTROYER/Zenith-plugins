@@ -14,6 +14,29 @@ export async function files(root, exclude = new Set()) {
   }
   return output;
 }
+/**
+ * No generated file may carry a credential. The first two patterns are the
+ * exact shapes Zenith mints (an agent bearer and a link device code); the third
+ * catches an environment block that assigns ZENITH_TOKEN a value, while its
+ * negative lookahead keeps an `=== env.ZENITH_TOKEN` comparison in shipped
+ * runtime code from reading as an inlined secret. scripts/build.mjs runs this
+ * before it writes an inventory and tests/hardening.test.mjs runs it over the
+ * committed packages, so a bad file is caught whether it arrives through the
+ * build or by hand. This is a check for these exact shapes, not a universal
+ * secret detector.
+ */
+export const SECRET_PATTERNS = Object.freeze([/za_[A-Za-z0-9_-]{43}/, /zl_[A-Za-z0-9_-]{43}/, /ZENITH_TOKEN["']?\s*[:=](?!=)/]);
+const BINARY = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico', '.woff', '.woff2', '.wasm', '.zip', '.tgz']);
+export async function scanForSecrets(root) {
+  const hits = [];
+  for (const file of await files(root, new Set(['node_modules', '.git']))) {
+    if (BINARY.has(path.extname(file).toLowerCase())) continue;
+    const text = await readFile(file, 'utf8').catch(() => '');
+    for (const pattern of SECRET_PATTERNS)
+      if (pattern.test(text)) hits.push(`${path.relative(root, file).split(path.sep).join('/')} matches ${pattern}`);
+  }
+  return hits;
+}
 export async function inventory(root) {
   const entries = {};
   for (const file of await files(root)) {

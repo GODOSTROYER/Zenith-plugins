@@ -27,7 +27,9 @@ Use the committed lockfile and run verification before generating local review a
      --trust "$HOME/.config/zenith-publisher/trusted-keys.json"
    ```
 
-   This writes `artifacts/release-manifest.json` plus one `zenith-CLIENT-VERSION.package-manifest.json` per client and re-verifies both. It refuses to run in CI, and it refuses a key path inside the checkout. `npm run release:prepare` is the unsigned equivalent and labels its output as unsigned.
+   This runs the verify lane, rebuilds both packages in the [signed-release shape](provenance.md#unsigned-preview) (`npm run build:signed`, which writes the `zenith-plugin-launcher` descriptor the launcher binds its invocation to), then writes `artifacts/release-manifest.json` plus one `zenith-CLIENT-VERSION.package-manifest.json` per client and re-verifies both. It refuses to run in CI, and it refuses a key path inside the checkout. `npm run release:prepare` is the unsigned equivalent and labels its output as unsigned.
+
+   Run `npm run build` afterwards to leave the checkout in its committed unsigned-preview shape; CI diffs `plugins/**` against a default build.
 4. Distribute the release envelope with the archives, and the **package** envelope with each installed package — the runtime activation gate needs the package envelope, not the release manifest.
 5. Consumers run `npm run provenance:verify -- --artifacts DIR --manifest DIR/release-manifest.json --trust TRUST_FILE` before extracting or registering anything.
 6. Record the key id, the signature expiry and the trust-file revision alongside the backend/plugin/client/Node versions. Signature expiry is mandatory and defaults to 90 days; plan the next signing before it lapses.

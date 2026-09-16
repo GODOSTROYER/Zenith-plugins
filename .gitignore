@@ -12,3 +12,6 @@ artifacts/
 
 node_modules
 *.tsbuildinfo
+
+# local live-test helper (never commit)
+.local-login.sh

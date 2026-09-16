@@ -1,6 +1,6 @@
 {
   "name": "zenith-integrations",
-  "version": "0.2.0-dev.1",
+  "version": "0.3.0-dev.1",
   "private": true,
   "type": "module",
   "description": "Zenith standalone MCP and native coding-agent packages with reviewed operations.",
@@ -12,6 +12,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
+    "build:signed": "node scripts/build.mjs --signed",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.control.json",
     "test": "node --test tests/*.test.mjs",
     "check": "node scripts/check.mjs",
@@ -21,7 +22,7 @@
     "start": "node packages/bridge/cli.mjs stdio",
     "test:live": "node scripts/live-smoke.mjs",
     "release:prepare": "npm run verify && node scripts/release.mjs",
-    "release:sign": "npm run verify && node scripts/release.mjs --sign",
+    "release:sign": "npm run verify && npm run build:signed && node scripts/release.mjs --sign",
     "provenance:selftest": "node scripts/provenance.mjs selftest",
     "provenance:sign-package": "node scripts/provenance.mjs sign-package",
     "provenance:verify-package": "node scripts/provenance.mjs verify-package",

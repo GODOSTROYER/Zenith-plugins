@@ -1,5 +1,5 @@
 import { ClientError, isObject, CONTRACT_VERSION, PROTOCOL_VERSIONS } from '../client/dist/index.js';
-export const VERSION = '0.2.0-dev.1';
+export const VERSION = '0.3.0-dev.1';
 export async function inspectConnection(client) {
   let id = 1;
   const invoke = (method, params = {}) => client.request({ jsonrpc: '2.0', id: id++, method, params });

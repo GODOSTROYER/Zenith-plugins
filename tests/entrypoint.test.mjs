@@ -22,5 +22,7 @@ test('launcher works through a symlinked parent, as in macOS temporary paths', {
   const alias = path.join(dir, 'linked bridge');
   await symlink(fileURLToPath(new URL('../packages/bridge', import.meta.url)), alias, 'dir');
   const { stdout, stderr } = await run(process.execPath, [path.join(alias, 'cli.mjs'), '--help'], { timeout: 5000 });
-  assert.match(stdout, /Zenith connector: stdio/); assert.equal(stderr, '');
+  assert.match(stdout, /^Zenith connector: /);
+  assert.match(stdout, /\bstdio\b/);
+  assert.equal(stderr, '');
 });

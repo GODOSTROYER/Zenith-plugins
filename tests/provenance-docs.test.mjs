@@ -7,12 +7,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { selftest } from '../scripts/provenance.mjs';
 import { createReleaseManifest, signReleaseManifest } from '../packages/provenance/index.mjs';
+import { asSignedReleasePackage } from './provenance-fixture.mjs';
 
 const docs = path.resolve('docs/provenance.md');
 const launcher = path.resolve('packages/launcher/cli.mjs');
@@ -42,7 +43,12 @@ async function throwawayKey(t) {
 
 test('the documented sign, verify and activate sequence works as written', { timeout: 60_000 }, async t => {
   const key = await throwawayKey(t);
-  const packageDir = path.resolve('plugins/codex');
+  // The documented sequence signs and activates a release package. The
+  // committed package is the unsigned-preview shape, so this stages the
+  // signed-release shape `npm run build -- --signed` writes.
+  const packageDir = path.join(key.dir, 'plugins-codex');
+  await cp(path.resolve('plugins/codex'), packageDir, { recursive: true });
+  await asSignedReleasePackage(packageDir, 'codex');
   const manifestFile = path.join(key.dir, 'zenith-codex.package-manifest.json');
 
   // docs/provenance.md, "Runtime activation gate": sign-package.

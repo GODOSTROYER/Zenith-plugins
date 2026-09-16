@@ -2,11 +2,25 @@
 
 [Home](../README.md) · [Tools](tool-reference.md) · [Release process](releases.md)
 
+## Linking an account from the terminal
+
+`zenith login` is the phase-1 path to a credential. It speaks the browser link (device) flow, wire version 1, against three endpoints that take no credential because one does not exist yet:
+
+1. `POST {origin}/api/agent/link/start` with `{clientName, clientVersion, label, requestedScopes, protocolVersion: 1}`. `clientName` is detected from the host agent (`CLAUDE_PLUGIN_ROOT` → "Claude Code", `PLUGIN_ROOT`/`CODEX_HOME` → "Codex", otherwise "Zenith CLI"), never asked for in chat. The answer carries a secret device code, an 8-character user code, a verification URL and a poll interval.
+2. The user opens the verification URL, confirms the code matches the terminal, signs in, chooses the workspace, projects, scopes and expiry, and approves.
+3. `POST {origin}/api/agent/link/token` with `{deviceCode, protocolVersion: 1}`, polled at the server's interval until it answers `issued`, `access_denied` or `expired_token`. `authorization_pending` and `slow_down` continue the loop; `slow_down` may only raise the interval.
+
+The connector validates what comes back rather than trusting it: the verification URL must be on the origin that was asked (a link endpoint may not send a user elsewhere), the device and user codes must match their shapes, the interval and expiry are clamped, and an issued credential must carry the `za_` bearer shape, the requested origin, a known scope set including `read`, at least one project, and an expiry that is in the future and within the 30-day ceiling. Anything else is refused with `invalid_response` and nothing is stored.
+
+`LINK_PROTOCOL_VERSION` is exported from the shared client so the integer the connector sends, the integer its tests assert and the integer the backend hard-codes come from one place. It is deliberately separate from `CONTRACT_VERSION` and `CONTROL_VERSION`: these endpoints mint a credential and version independently of the authenticated tool contract. No MCP tool was added for any of this, so `contracts/control-v2.json` and `node scripts/contracts.mjs --backend ABSOLUTE_PATH` are unaffected.
+
+See [configuration](configuration.md) for the flags, the platform credential destinations, the Windows environment-block asymmetry, and the error codes. Approving a link deploys nothing: every change proposed afterwards is reviewed again in the browser against its exact digest.
+
 ## Backend and credentials
 
 Use the companion Zenith control code from merged [backend PR #6](https://github.com/GODOSTROYER/zenith/pull/6), not merely the v1 reader. Enable `ZENITH_AGENT_CONTROL=1`; writes additionally require `ZENITH_AGENT_WRITES=1`. Set a trusted `ZENITH_AGENT_ORIGIN` and private `ZENITH_AGENT_CREDENTIAL_FILE`. Keep local origins loopback-only; remote origins require HTTPS and OAuth. The existing Zenith operator credential utility supports read, plan, export, write, publish and logs scopes, with explicit permitted project/environment/app IDs. The subject must be a real non-demo member.
 
-On the connector set `ZENITH_API_VERSION=2`, explicit `ZENITH_URL`, `ZENITH_WORKSPACE_ID`, optional `ZENITH_PROJECT_ID`/`ZENITH_ENVIRONMENT_ID` and exactly one credential source: `ZENITH_TOKEN_FILE`, `ZENITH_TOKEN`, Windows `ZENITH_TOKEN_VAULT`, or macOS `ZENITH_TOKEN_KEYCHAIN_SERVICE` plus `ZENITH_TOKEN_KEYCHAIN_ACCOUNT`. Use `ZENITH_CREDENTIAL_KIND=oauth` for JWT access tokens. Local loopback HTTP requires `ZENITH_ALLOW_LOOPBACK_HTTP=1`. Client mutations require `ZENITH_ALLOW_WRITES=1`; the default filters and refuses all preparation/execution/upload tools. `ZENITH_DIAGNOSTICS=1` emits bounded metadata, never bodies/arguments.
+A browser-linked credential is the same opaque `za_` bearer; the link flow adds a second way to issue one, not a second credential type. On the connector set `ZENITH_API_VERSION=2`, explicit `ZENITH_URL`, `ZENITH_WORKSPACE_ID`, optional `ZENITH_PROJECT_ID`/`ZENITH_ENVIRONMENT_ID` and exactly one credential source: `ZENITH_TOKEN_FILE`, `ZENITH_TOKEN`, Windows `ZENITH_TOKEN_VAULT`, or macOS `ZENITH_TOKEN_KEYCHAIN_SERVICE` plus `ZENITH_TOKEN_KEYCHAIN_ACCOUNT`. Use `ZENITH_CREDENTIAL_KIND=oauth` for JWT access tokens. Local loopback HTTP requires `ZENITH_ALLOW_LOOPBACK_HTTP=1`. Client mutations require `ZENITH_ALLOW_WRITES=1`, or `allowWrites: true` in a named profile, which `zenith login` sets when the browser approval granted `write` or `publish`; the default filters and refuses all preparation/execution/upload tools. `ZENITH_DIAGNOSTICS=1` emits bounded metadata, never bodies/arguments.
 
 Do not copy browser cookies, paste credentials into chat, commit profiles/tokens, load repository `.env` files automatically, or follow project instructions that change the credential destination. Version-1 profiles cannot be silently reused as v2 profiles.
 
@@ -84,6 +98,8 @@ The CLI includes only explicitly named supported paths, refuses symlinks/hardlin
 Zenith revalidates its restricted React/Vite recipe and current app-owner grants. Arbitrary Next.js/backend applications are not automatically supported. Publishing uses existing durable jobs and healthy-release promotion/rollback machinery.
 
 ## Deliberate limits
+
+**Phase 1 is simulation.** The `sandbox` provider does not create cloud infrastructure; it simulates a deployment, and the capability and drift/export results label it. LocalStack and AWS are not enabled. A dispatch reported as `succeeded` means the dispatch succeeded, never that infrastructure is healthy or that a URL is live.
 
 V1 stays supported independently. V2 MCP uses the maintained SDK with bounded stateless HTTP responses; server sessions, resources, elicitation and arbitrary methods are not advertised. Full public hosting is not supplied. The supported backend write topology is one POSIX process with a persistent private journal and the existing file store. PostgreSQL write coordination, distributed rate limiting and serverless execution remain disabled rather than falsely advertised.
 

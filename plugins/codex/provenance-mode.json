@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "mode": "unsigned-preview",
+  "client": "codex",
+  "packageVersion": "0.3.0-dev.1",
+  "generatedFrom": "zenith-integrations@0.3.0-dev.1",
+  "generator": "scripts/build.mjs",
+  "verification": "Unsigned preview build. A marketplace fetch proves only that the client downloaded this package; it does not authenticate a publisher. Move to the signed release path for publisher authentication. See docs/provenance.md."
+}

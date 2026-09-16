@@ -2,7 +2,7 @@
 /** Explicit operator tool for signing and verifying plugin provenance. */
 import { spawn } from 'node:child_process';
 import { createPrivateKey, generateKeyPairSync } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +11,7 @@ import {
   createPackageManifest, createReleaseManifest, signReleaseManifest,
   verifyPackageDirectory, verifyArtifactDirectory, ProvenanceError,
 } from '../packages/provenance/index.mjs';
+import { PROVENANCE_MODE_FILE, SIGNED_RELEASE, mcpDescriptor, provenanceModeDocument } from './package-mode.mjs';
 
 const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 
@@ -81,10 +82,23 @@ function launch(args, env) {
  * `provenance:verify` needs release artifacts and the operator's own trust
  * file, neither of which exists in a checkout or in CI.
  */
-export async function selftest({ packageDir = path.join(repositoryRoot, 'plugins/codex'), entry = 'runtime/bridge/cli.mjs' } = {}) {
+export async function selftest({ packageDir = path.join(repositoryRoot, 'plugins/codex'), entry = 'runtime/bridge/cli.mjs', client = 'codex' } = {}) {
   const work = await mkdtemp(path.join(tmpdir(), 'zenith provenance selftest '));
   const steps = [];
   try {
+    // The launcher binds its invocation to the descriptor the publisher signed,
+    // so this runs against the signed-release shape of the generated package —
+    // the same bytes plus the release descriptor and marker that
+    // `npm run build -- --signed` writes. The committed package is the
+    // unsigned-preview shape, which is activated by the in-process gate
+    // instead and is covered by tests/activation.test.mjs.
+    const source = path.resolve(packageDir);
+    const release = path.join(work, 'package');
+    await cp(packageDir, release, { recursive: true, verbatimSymlinks: true });
+    const { version } = JSON.parse(await readFile(path.join(release, 'package.json'), 'utf8'));
+    await writeFile(path.join(release, '.mcp.json'), `${JSON.stringify(mcpDescriptor(client, SIGNED_RELEASE), null, 2)}\n`);
+    await writeFile(path.join(release, PROVENANCE_MODE_FILE), `${JSON.stringify(provenanceModeDocument(client, version, SIGNED_RELEASE), null, 2)}\n`);
+    packageDir = release;
     const { privateKey, publicKey } = generateKeyPairSync('ed25519');
     const keyFile = path.join(work, 'throwaway.private.pem');
     const trustFile = path.join(work, 'trusted-keys.json');
@@ -107,7 +121,7 @@ export async function selftest({ packageDir = path.join(repositoryRoot, 'plugins
     if (!(refused instanceof ProvenanceError) || refused.code !== 'subject_mismatch')
       throw new ProvenanceError('selftest_failed', 'A package envelope must be refused with subject_mismatch by the release gate.');
     steps.push({ step: 'release-gate-rejects-package-envelope', code: refused.code });
-    return { status: 'selftest-passed', packageDir: path.resolve(packageDir), steps };
+    return { status: 'selftest-passed', packageDir: source, activationMode: SIGNED_RELEASE, steps };
   } finally { await rm(work, { recursive: true, force: true }); }
 }
 

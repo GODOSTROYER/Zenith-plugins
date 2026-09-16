@@ -2,6 +2,8 @@
 
 [Home](../README.md) · [Control contract](control-v2.md) · [Remaining scope](roadmap.md)
 
+> **0.3.0-dev.1 addendum.** `login`, `logout` and `status` add the browser link flow, twelve shared skills now include `link`, and local write enablement follows the granted scopes. No MCP tool, no contract version and no existing tool shape changed. The rest of this checkpoint still describes 0.2.0-dev.1 and is left as the snapshot it was; [the roadmap](roadmap.md) carries what 0.3.0-dev.1 added and what it still depends on.
+
 The original read-only foundation (plugin PR #2) is now merged to `main`. The v2 implementation was initially submitted as stacked PR #3, which was merged into the former foundation branch rather than `main`. **[PR #4](https://github.com/GODOSTROYER/Zenith-plugins/pull/4) is the integration PR targeting `main`.** It preserves v1 and delivers the opt-in maintained-SDK v2 path.
 
 The authoritative backend is implemented in [Zenith PR #6](https://github.com/GODOSTROYER/zenith/pull/6), merged at `5544ff6f78372879faf757ab20203e9b97d0463e`. Backend code owns durable proposals, trusted browser review, live authorization, actual actions and upload storage. Packages own setup, workflow knowledge, source preflight and transport. Neither plugin opens backend stores or approves its own work.

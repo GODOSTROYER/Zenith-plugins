@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, cp, rm, writeFile, chmod, symlink } from 'node:fs/promises';
+import { mkdtemp, cp, rm, writeFile, chmod, symlink, readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -13,6 +13,21 @@ const credential=`za_${'B'.repeat(43)}`;
 test('credential file ownership, permissions, size and symlink guards',{skip:process.platform==='win32'?'POSIX ownership/mode checks; Windows private files fail closed':false},async()=>{
  const dir=await mkdtemp(path.join(tmpdir(),'zenith token '));
  try {const file=path.join(dir,'client.token');await writeFile(file,credential,{mode:0o600});assert.equal(await readCredential(file),credential);await chmod(file,0o644);await assert.rejects(readCredential(file));await chmod(file,0o600);await writeFile(file,'x'.repeat(257));await assert.rejects(readCredential(file));await symlink(file,path.join(dir,'linked'));await assert.rejects(readCredential(path.join(dir,'linked')));await assert.rejects(readCredential('relative.token'));} finally{await rm(dir,{recursive:true,force:true});}
+});
+const SKILLS=['connect','deploy','edit','export','incident','inspect','link','observe','plan','promote','publish','rollback'];
+for(const kind of ['codex','claude-code'])test(`${kind} package ships every shared skill byte for byte, link included`,async()=>{
+ const shared=new URL('../shared/skills/',import.meta.url),packaged=new URL(`../plugins/${kind}/skills/`,import.meta.url);
+ assert.deepEqual((await readdir(shared)).sort(),SKILLS,'shared/skills is the canonical inventory; scripts/build.mjs copies it');
+ assert.deepEqual((await readdir(packaged)).sort(),SKILLS,`stale ${kind} skills: run npm run build`);
+ for(const skill of SKILLS)
+  assert.equal(await readFile(new URL(`${skill}/SKILL.md`,packaged),'utf8'),await readFile(new URL(`${skill}/SKILL.md`,shared),'utf8'),`${kind} ${skill} skill diverged from shared source`);
+ const link=await readFile(new URL('link/SKILL.md',shared),'utf8');
+ assert.match(link,/zenith login/);
+ assert.match(link,/exactly as printed/);
+ assert.equal(/paste a token/.test(link),true,'the link skill must forbid pasting a credential into the conversation');
+ const deploy=await readFile(new URL('deploy/SKILL.md',shared),'utf8');
+ assert.match(deploy,/simulat/i,'phase 1 is simulation and the deploy skill must say so');
+ assert.match(deploy,/LocalStack and AWS are \*\*not enabled yet\*\*/);
 });
 for(const kind of ['codex','claude-code'])test(`copied ${kind} package runs authenticated stdio against HTTP fixture`,{timeout:10000},async t=>{
  const dir=await mkdtemp(path.join(tmpdir(),'zenith installed package '));let child;

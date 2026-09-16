@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { ZenithClient, READ_TOOLS, validateResponse } from '../packages/client/dist/index.js';
+import { scanForSecrets } from '../scripts/package-files.mjs';
 const token = `za_${'C'.repeat(43)}`;
 const ping = { jsonrpc: '2.0', id: 1, method: 'ping' };
 const initialize = { ...ping, method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'test', version: '1' } } };
@@ -96,6 +101,27 @@ test('diagnostics are bounded metadata and a failing sink does not change result
   await c.request(ping); assert.equal(records.length, 1);
   assert.deepEqual(Object.keys(records[0]).sort(), ['component', 'durationMs', 'method', 'outcome', 'requestId', 'responseBytes', 'status']);
   assert.equal(JSON.stringify(records).includes(token), false); assert.equal(records[0].outcome, 'success');
+});
+test('no generated package file carries a credential, a device code or a token environment block', async () => {
+  const packages = fileURLToPath(new URL('../plugins/', import.meta.url));
+  assert.deepEqual(await scanForSecrets(packages), []);
+});
+test('the generated-package secret scan actually catches each shape it claims to', async t => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'zenith-secret-scan-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await writeFile(path.join(dir, 'clean.md'), `Set ZENITH_TOKEN_FILE to an absolute path.\nif (!!env.ZENITH_TOKEN === !!env.ZENITH_TOKEN_FILE) fail();\n`);
+  assert.deepEqual(await scanForSecrets(dir), [], 'a comparison against ZENITH_TOKEN in shipped runtime code is not an inlined secret');
+  for (const [name, content] of [
+    ['bearer.json', `{ "token": "za_${'A'.repeat(43)}" }`],
+    ['device.txt', `deviceCode=zl_${'B'.repeat(43)}`],
+    ['env.sh', 'ZENITH_TOKEN=whatever'],
+    ['mcp.json', '{ "env": { "ZENITH_TOKEN": "value" } }'],
+  ]) {
+    const file = path.join(dir, name);
+    await writeFile(file, content);
+    assert.equal((await scanForSecrets(dir)).length, 1, `${name} must be caught`);
+    await rm(file);
+  }
 });
 test('requests disguised as notifications are not forwarded', async () => {
   const c = client(() => assert.fail('network reached'));
