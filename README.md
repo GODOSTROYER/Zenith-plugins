@@ -2,6 +2,12 @@
 
 One standalone connector and native Codex/Claude Code packages, generated from shared sources.
 
+Companion repository to **[GODOSTROYER/zenith](https://github.com/GODOSTROYER/zenith)**, and only
+useful beside it: Zenith owns the authenticated endpoint, the actions, permissions and storage,
+while this repository owns the typed transport client, the local stdio process, setup/doctor and
+the shared skills ([ownership](docs/architecture.md)). Nothing here is hosted — the connector runs
+as a local process next to your MCP client, against a Zenith you are already running.
+
 **0.2.0-dev.1 — opt-in reviewed operations.** The legacy v1 reader remains the default. Version 2 requires the control backend merged in [Zenith PR #6](https://github.com/GODOSTROYER/zenith/pull/6); it never turns on server writes or obtains additional permissions automatically.
 
 ## Capabilities
@@ -24,6 +30,20 @@ npm run release:prepare
 Node 22.16 or newer. The TypeScript client and v2 runtime are strict-checked. SDK-backed runtime bundles and dependency notices are included in both generated packages; installing a generated package needs no compiler or runtime dependency installation.
 
 [Version 2 setup and security](docs/control-v2.md) · [Tool reference](docs/tool-reference.md) · [Verification](docs/verification.md) · [Release process](docs/releases.md) · [Remaining scope](docs/roadmap.md)
+
+## Repository layout
+
+| Path | What is in it |
+| --- | --- |
+| `packages/client` | the typed transport client and the versioned v2 control tool inventory |
+| `packages/control` | the v2 runtime — stdio server, named profiles, keychain, remote OAuth, source packaging |
+| `packages/bridge` | the `setup`, `doctor`, `profile`, `source` and `stdio` commands |
+| `packages/launcher` | `zenith-plugin-launcher`, this repository's only `bin`, which activates a verified private copy |
+| `packages/provenance` | the signing and verification primitives behind that activation gate |
+| `shared/skills` | the eleven workflow skills both plugins are generated from |
+| `plugins/claude-code`, `plugins/codex` | the generated packages, committed so installing one needs no compiler |
+| `contracts/control-v2.json` | the snapshot `npm run contracts:check` holds the backend to |
+| `tests` | the `node --test` suites for everything above |
 
 ## Configuration
 
@@ -48,3 +68,8 @@ Named profiles, Windows CurrentUser DPAPI credential storage, source preflight/u
 Zenith owns authentication, authorization, actions and persistence. Plugins never open its stores or impersonate Navigator. Writes currently require a long-lived single-writer POSIX Zenith file-store deployment; PostgreSQL writes and serverless control are explicitly refused. Remote OAuth requires your configured authorization provider and matching browser grant. These are not public hosted-service credentials.
 
 Native client installation and real provider/identity-provider acceptance remain separate from automated fixture evidence. No merge, publication or infrastructure deployment is performed by normal builds. No project license grant has been selected.
+
+## Author
+
+Arnav Bule — [arnavbule.in](https://www.arnavbule.in) ·
+[github.com/GODOSTROYER](https://github.com/GODOSTROYER)
